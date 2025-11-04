@@ -1,6 +1,15 @@
-// Safe fetch shim (Node 18/20 compatible)
-const fetch = global.fetch || ((...args) =>
-import('node-fetch').then(m => m.default(...args)));
+// Robust fetch: use global if present, otherwise Undici
+let fetchFn = globalThis.fetch;
+if (!fetchFn) {
+try {
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { fetch } = require('undici');
+fetchFn = fetch;
+globalThis.fetch = fetch;
+} catch (e) {
+console.error('Fetch not available and undici not installed.');
+}
+}
 
 const express = require('express');
 const app = express();
@@ -8,7 +17,7 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
 const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
-const UI_TAG = process.env.UI_TAG || 'stable-fixfetch-v1';
+const UI_TAG = process.env.UI_TAG || 'stable-undici-v1';
 
 // --- CSP sanitizer ---
 function buildFrameAncestors(raw) {
@@ -28,30 +37,23 @@ console.log('CSP →', CSP_VALUE);
 
 app.set('trust proxy', true);
 app.set('etag', false);
-
-// no-cache
 app.use((_, res, next) => {
 res.setHeader('Cache-Control','no-store,no-cache,must-revalidate,max-age=0');
 res.setHeader('Pragma','no-cache');
 res.setHeader('Expires','0');
 next();
 });
-
-// safe CSP
 app.use((_, res, next) => {
 try { res.setHeader('Content-Security-Policy', CSP_VALUE); }
 catch(e){ console.error('CSP header error:', e); }
 next();
 });
-
-// 301 redirect *.onrender.com → custom domain
 app.use((req,res,next)=>{
 const host=(req.headers.host||'').toLowerCase();
 if(host.endsWith('.onrender.com'))
 return res.redirect(301,`https://${FORCE_DOMAIN}${req.originalUrl||'/'}`);
 next();
 });
-
 app.use(express.json());
 
 // ---------- Non-stream API (/api/ask) ----------
@@ -63,12 +65,15 @@ role:m.role==='assistant'?'assistant':'user',
 content:(m.content||'').toString().slice(0,2000)
 }));
 
+if (!fetchFn) {
+return res.json({answer:'Server fetch not available. Please try again shortly.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'});
+}
 if(!process.env.OPENAI_API_KEY){
 return res.json({answer:'OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'});
 }
 
 try{
-const r=await fetch('https://api.openai.com/v1/chat/completions',{
+const r=await fetchFn('https://api.openai.com/v1/chat/completions',{
 method:'POST',
 headers:{
 'content-type':'application/json',
@@ -104,7 +109,7 @@ document.getElementById('out').textContent=JSON.stringify(data,null,2);
 </script>`);
 });
 
-// ---------- UI (hybrid layout + dark mode + readable) ----------
+// ---------- UI ----------
 app.get('/',(_,res)=>{
 res.type('html').send(`<!doctype html>
 <meta charset="utf-8"/>
@@ -139,13 +144,11 @@ form{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);p
 textarea{width:100%;min-height:64px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px}
 button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}
 footer{text-align:center;padding:18px;color:var(--muted);border-top:1px solid var(--line)}
-/* Mobile comfort */
 @media (max-width:560px){
 main{max-width:100%;padding:0 0 100px}
 #messages{border:none;border-radius:0;box-shadow:none;height:75vh;padding:16px 14px}
 .bubble{max-width:92%}
 }
-/* Auto dark mode */
 @media (prefers-color-scheme: dark){
 :root{--blue:#7fb0ff;--red:#ff6b73;--bg:#0f1115;--panel:#161920;--line:#2a2f3a;--ink:#f2f4f8;--muted:#9ba4b3;--user:#1a2130;--assistant:#161b24;--shadow:0 8px 24px rgba(0,0,0,.45);}
 body{background:var(--bg);color:var(--ink)}
@@ -230,4 +233,4 @@ console.error('Express error:',err?.stack||err);
 res.status(500).type('text/plain').send('Internal Server Error (see logs)');
 });
 
-app.listen(PORT,()=>console.log(`✅ Hey Bori (Stable Non-Streaming) listening on ${PORT}`));
+app.listen(PORT,()=>console.log(`✅ Hey Bori (Stable Non-Streaming • Undici) listening on ${PORT}`));
