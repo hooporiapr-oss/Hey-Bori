@@ -1,4 +1,4 @@
-// Hey Bori — Mobile-Only Chat (bilingual ES-first, no mic, no status bar)
+// Hey Bori — Mobile-Only Chat (bilingual ES-first, no mic, input pinned bottom)
 process.on('uncaughtException', e => console.error('[uncaughtException]', e))
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e))
 
@@ -99,9 +99,8 @@ req.write(body); req.end()
 })
 }
 
-// ---------- HTML (strings) ----------
+// ---------- HTML (shell + inner) ----------
 function mobileShellHTML(lang) {
-// lang is 'es' | 'en' | 'auto' (we default to 'es')
 return (
 '<!doctype html><meta charset=utf-8>' +
 '<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">' +
@@ -125,20 +124,21 @@ return (
 const INNER_HTML =
 '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">' +
 '<title>Hey Bori Chat</title>' +
-'<style>' +
-':root{--line:#e6e6e6;--user:#eef4ff;--assistant:#f7f7f7}' +
-'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111}' +
-'main{height:100%;display:flex;flex-direction:column}' +
-'#messages{flex:1 1 auto;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:16px 14px}' +
+'<style>:root{--line:#e6e6e6;--user:#eef4ff;--assistant:#f7f7f7}' +
+'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;overflow:hidden}' +
+'main{position:relative;height:100%;display:flex;flex-direction:column;background:#fff}' +
+'#messages{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px 14px;scroll-behavior:smooth}' +
 '.row{display:flex;gap:10px;align-items:flex-start}' +
 '.avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800;flex:0 0 28px;border:1px solid var(--line)}' +
 '.right{justify-content:flex-end}.right .avatar{background:#ff4455;color:#fff;border-color:#ffc2c5}' +
 '.bubble{max-width:85%;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
 '.user .bubble{background:var(--user);border-color:#d8e7ff}.assistant .bubble{background:var(--assistant)}' +
 '.name{font-size:12px;font-weight:700;color:#333;margin-bottom:4px;letter-spacing:.2px}' +
-'form{flex:0 0 auto;display:grid;grid-template-columns:1fr auto;gap:10px;border-top:1px solid var(--line);padding:12px 14px;background:#fff}' +
-'textarea{width:100%;min-height:64px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px}' +
+'form{position:sticky;bottom:0;left:0;right:0;z-index:10;display:grid;grid-template-columns:1fr auto;gap:10px;' +
+'border-top:1px solid var(--line);padding:10px 14px;background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,0.04)}' +
+'textarea{width:100%;min-height:56px;resize:none;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px;line-height:1.4}' +
 'button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}' +
+'button:disabled{opacity:0.6;cursor:default}' +
 '</style>' +
 '<main>' +
 ' <div id=messages></div>' +
@@ -148,9 +148,10 @@ const INNER_HTML =
 ' </form>' +
 '</main>' +
 '<script>' +
-// read lang from query (?lang=es|en|auto), default ES
 'var LANG=(new URLSearchParams(location.search).get("lang")||"es").toLowerCase();' +
-'var KEY="bori_chat_v3";function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}function save(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(e){}}' +
+'var KEY="bori_chat_v3";' +
+'function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}' +
+'function save(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(e){}}' +
 'var els={list:document.getElementById("messages"),form:document.getElementById("ask-form"),q:document.getElementById("q"),send:document.getElementById("send")};' +
 'function when(t){return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}' +
 'function esc(s){return String(s).replace(/[&<>\"\\\']/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","\\\'":"&#39;"}[m]})}' +
@@ -159,7 +160,7 @@ const INNER_HTML =
 'function render(end){var t=load();els.list.innerHTML=t.map(function(m){return bubble(m.role,m.content,m.ts)}).join("");if(end)els.list.scrollTop=els.list.scrollHeight}' +
 'async function ask(q){var h=load().slice(-12);var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q,history:h,lang:LANG})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
 'function typeWriter(t){var o="",i=0,step=Math.max(2,Math.floor(t.length/200));(function tick(){o+=t.slice(i,i+step);i+=step;var a=load();a[a.length-1]={role:"assistant",content:o,ts:Date.now()};save(a);render(true);if(i<t.length)setTimeout(tick,20);})();}' +
-'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var a=await ask(q);var t2=load();t2.push({role:"assistant",content:"",ts:Date.now()});save(t2);render(true);typeWriter(a)}catch(err){var t3=load();t3.push({role:"assistant",content:"(network) "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus()}});render(true);<\/script>'
+'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var a=await ask(q);var t2=load();t2.push({role:"assistant",content:"",ts:Date.now()});save(t2);render(true);typeWriter(a)}catch(err){var t3=load();t3.push({role:"assistant",content:"(network) "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus();}});render(true);<\/script>'
 
 // ---------- server ----------
 const server = http.createServer((req, res) => {
@@ -169,7 +170,7 @@ if (setCommonHeaders(res, u)) { res.end(); return }
 
 const ua = req.headers['user-agent'] || ''
 
-// Root: mobile-only; default lang=es, but respect ?lang override
+// Root page — mobile only
 if (req.method === 'GET' && u.pathname === '/') {
 if (!isMobileUA(ua)) return text(res, 200, 'Mobile only')
 const lang = (u.searchParams.get('lang') || 'es').toLowerCase()
@@ -190,7 +191,7 @@ req.on('end', async () => {
 try {
 const j = JSON.parse(body || '{}')
 const q = (j.question || '').toString().slice(0, 4000)
-const lang = (j.lang || 'es').toLowerCase() // default ES
+const lang = (j.lang || 'es').toLowerCase()
 const hist = (Array.isArray(j.history) ? j.history : []).map(m => ({
 role: m && m.role === 'assistant' ? 'assistant' : 'user',
 content: ((m && m.content) || '').toString().slice(0, 2000)
@@ -198,10 +199,8 @@ content: ((m && m.content) || '').toString().slice(0, 2000)
 
 const systemPrompt =
 lang === 'en'
-? 'Respond ONLY in English. Use full conversation context. Keep it concise and helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
-: lang === 'es'
-? 'Responde SIEMPRE en dos partes: 1) Español (PR) primero, 2) Inglés después. Usa todo el contexto de la conversación. Sé claro, breve y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
-: 'Prioriza Español (PR) primero y luego Inglés en la misma respuesta. Usa todo el contexto. Sé claro, breve y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
+? 'Respond ONLY in English. Use full conversation context. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
+: 'Responde SIEMPRE en dos partes: 1) Español (PR) primero, 2) Inglés después. Usa todo el contexto. Sé claro y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
 
 const msgs = [
 { role: 'system', content: systemPrompt },
@@ -225,5 +224,5 @@ text(res, 500, 'Internal Server Error')
 })
 
 server.listen(Number(PORT), () => {
-console.log('✅ Hey Bori (mobile ES-first bilingual) listening on ' + PORT)
+console.log('✅ Hey Bori (mobile ES-first bilingual pinned input) listening on ' + PORT)
 })
