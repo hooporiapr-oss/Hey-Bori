@@ -1,4 +1,4 @@
-// Hey Bori — Stable core (separate HTML + JS, zero deps)
+// Hey Bori — Stable core (separate HTML + JS, zero deps, continuity fixed)
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e?.stack || e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e?.stack || e));
@@ -172,6 +172,7 @@ const APP_JS =
 'function render(scrollEnd){var t=load();els.list.innerHTML=t.map(function(m){return bubble(m.role,m.content,m.ts)}).join("");if(scrollEnd)els.list.scrollTop=els.list.scrollHeight}' +
 'async function askBackend(question){var history=load().slice(-12);var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:question,history:history})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
 'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";els.q.style.height="auto";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var answer=await askBackend(q);var t2=load();t2.push({role:"assistant",content:answer,ts:Date.now()});save(t2);render(true)}catch(err){var t3=load();t3.push({role:"assistant",content:"Error: "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus()}});' +
+'console.log("[hey-bori] local history size:", (load()||[]).length);' +
 'render(true);';
 
 // ---------- server ----------
@@ -202,27 +203,59 @@ res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8','Cach
 return res.end(Buffer.from(APP_JS));
 }
 
+// -------- CONTINUITY-FIXED ask endpoint --------
 if (req.method === 'POST' && reqUrl.pathname === '/api/ask') {
 let body = '';
 req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
 req.on('end', async () => {
 try {
 const j = JSON.parse(body || '{}');
-const q = (j.question || '').toString().slice(0,4000);
+const q = (j.question || '').toString().slice(0, 4000);
+
+// 1) Normalize and keep last 12 turns
 const hist = Array.isArray(j.history) ? j.history : [];
-const mapped = hist.slice(-12).map(m => ({
-role: m && m.role === 'assistant' ? 'assistant' : 'user',
-content: (m && m.content || '').toString().slice(0,2000)
-}));
+const mapped = hist
+.map(m => ({
+role: (m && m.role) === 'assistant' ? 'assistant' : 'user',
+content: ((m && m.content) || '').toString().slice(0, 2000)
+}))
+.filter(m => m.content);
+
+const trimmed = mapped.slice(-12);
+
+// 2) De-dupe: avoid appending q if it's already the last user item
+const last = trimmed[trimmed.length - 1];
+const shouldAppendQ = !(last && last.role === 'user' && last.content === q);
+
+// 3) Build final messages
 const messages = [
-{ role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
-...mapped,
-{ role: 'user', content: q }
+{ role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Use the entire previous conversation as context. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
+...trimmed,
+...(shouldAppendQ ? [{ role: 'user', content: q }] : [])
 ];
+
+console.log('[hey-bori] history_in:', trimmed.length, 'append_q:', shouldAppendQ);
+
 const answer = await callOpenAI(messages);
 return json(res, 200, { answer });
 } catch (e) {
 return json(res, 200, { answer: 'Temporary error. Try again.\n(detail: ' + (e.message || e) + ')' });
+}
+});
+return;
+}
+
+// -------- history debug (optional) --------
+if (req.method === 'POST' && reqUrl.pathname === '/debug-history') {
+let body = '';
+req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
+req.on('end', () => {
+try {
+const j = JSON.parse(body || '{}');
+const hist = Array.isArray(j.history) ? j.history : [];
+return json(res, 200, { count: hist.length, sample: hist.slice(-4) });
+} catch (e) {
+return json(res, 200, { error: e.message || String(e) });
 }
 });
 return;
@@ -236,5 +269,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () => {
-console.log('✅ Hey Bori (core-split) listening on ' + PORT);
+console.log('✅ Hey Bori (core-split+continuity) listening on ' + PORT);
 });
