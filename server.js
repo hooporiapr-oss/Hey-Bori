@@ -1,11 +1,11 @@
-// server.js — Hey Bori (Experience Upgrade: streaming + UX polish)
+// server.js — Hey Bori (Experience Upgrade: streaming + UX polish, Node 20)
 const express = require('express');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
 const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
 const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
-const UI_TAG = process.env.UI_TAG || 'exp-v1';
+const UI_TAG = process.env.UI_TAG || 'exp-v2';
 
 // ---------- CSP sanitizer ----------
 function buildFrameAncestors(raw) {
@@ -90,72 +90,86 @@ res.json({answer:`Temporary error. Try again.\n(detail:${String(e?.message||e)})
 }
 });
 
-// ---------- Streaming endpoint (/api/stream) ----------
+// ---------- Streaming endpoint (/api/stream) (Node 20 safe) ----------
 app.post('/api/stream', async (req, res) => {
-const q=(req.body?.question||'').toString().slice(0,4000);
-const hist=Array.isArray(req.body?.history)?req.body.history:[];
-const mapped=hist.slice(-12).map(m=>({
-role:m.role==='assistant'?'assistant':'user',
-content:(m.content||'').toString().slice(0,2000)
+const q = (req.body?.question || '').toString().slice(0, 4000);
+const hist = Array.isArray(req.body?.history) ? req.body.history : [];
+const mapped = hist.slice(-12).map(m => ({
+role: m.role === 'assistant' ? 'assistant' : 'user',
+content: (m.content || '').toString().slice(0, 2000)
 }));
 
-// Soft fallback if key missing
-if(!process.env.OPENAI_API_KEY){
-res.setHeader('Content-Type','text/plain; charset=utf-8');
+if (!process.env.OPENAI_API_KEY) {
+res.setHeader('Content-Type', 'text/plain; charset=utf-8');
 res.write('OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
 return res.end();
 }
 
-try{
-const r = await fetch('https://api.openai.com/v1/chat/completions',{
-method:'POST',
-headers:{
-'content-type':'application/json',
-'authorization':`Bearer ${process.env.OPENAI_API_KEY}`
+try {
+const r = await fetch('https://api.openai.com/v1/chat/completions', {
+method: 'POST',
+headers: {
+'content-type': 'application/json',
+'authorization': `Bearer ${process.env.OPENAI_API_KEY}`
 },
-body:JSON.stringify({
-model:'gpt-4o-mini',
-stream:true,
-messages:[
-{role:'system',content:'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'},
+body: JSON.stringify({
+model: 'gpt-4o-mini',
+stream: true,
+messages: [
+{ role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
 ...mapped,
-{role:'user',content:q}
+{ role: 'user', content: q }
 ]
 })
 });
 
-if(!r.ok){
-res.setHeader('Content-Type','text/plain; charset=utf-8');
-const detail=await r.text().catch(()=> '');
+res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+res.setHeader('Cache-Control', 'no-cache');
+res.setHeader('Connection', 'keep-alive');
+res.setHeader('Transfer-Encoding', 'chunked');
+
+if (!r.ok) {
+const detail = await r.text().catch(() => '');
 res.write(`Model unavailable. Try again later.\n\n(detail:${detail.slice(0,200)})`);
 return res.end();
 }
 
-// Stream OpenAI SSE → plain text chunks
-res.setHeader('Content-Type','text/plain; charset=utf-8');
-res.setHeader('Transfer-Encoding','chunked');
+// Parse OpenAI SSE → plain text chunks
+const reader = r.body.getReader();
+const decoder = new TextDecoder('utf-8');
+let buff = '';
 
-let buffer = '';
-for await (const chunk of r.body){
-buffer += chunk.toString('utf8');
-const lines = buffer.split('\n');
-buffer = lines.pop() || '';
-for(const line of lines){
-const trimmed = line.trim();
-if(!trimmed || !trimmed.startsWith('data:')) continue;
-const payload = trimmed.replace(/^data:\s*/,'');
-if(payload === '[DONE]'){ res.end(); return; }
-try{
+while (true) {
+const { value, done } = await reader.read();
+if (done) break;
+buff += decoder.decode(value, { stream: true });
+
+// Split into lines; keep last partial line in buffer
+const lines = buff.split('\n');
+buff = lines.pop() || '';
+
+for (const raw of lines) {
+const line = raw.trim();
+if (!line || !line.startsWith('data:')) continue;
+
+const payload = line.slice(5).trim();
+if (payload === '[DONE]') {
+res.end();
+return;
+}
+try {
 const obj = JSON.parse(payload);
 const delta = obj?.choices?.[0]?.delta?.content || '';
-if(delta) res.write(delta);
-}catch{ /* ignore keep-alives */ }
+if (delta) res.write(delta);
+} catch {
+// ignore keep-alives / non-json
+}
 }
 }
 res.end();
-}catch(e){
-res.setHeader('Content-Type','text/plain; charset=utf-8');
-res.write(`Temporary error. Try again.\n(detail:${String(e?.message||e)})`);
+} catch (e) {
+res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+res.write(`Temporary error. Try again.\n(detail:${String(e?.message || e)})`);
 res.end();
 }
 });
@@ -205,7 +219,7 @@ padding:20px 18px;border:1px solid var(--line);border-radius:12px;background:#ff
 .typing .dots{display:inline-block}
 .typing .dots span{display:inline-block;width:6px;height:6px;margin-right:3px;border-radius:50%;background:#bdbdbd;animation:blink 1.2s infinite ease-in-out}
 .typing .dots span:nth-child(2){animation-delay:.2s}
-.typing .dots span:nth-child(3){animation-delay=.4s}
+.typing .dots span:nth-child(3){animation-delay:.4s}
 @keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
 form{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px;box-shadow:0 -6px 16px rgba(0,0,0,.04)}
 .bar{max-width:var(--max);margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px}
@@ -288,7 +302,7 @@ o.stop(ctx.currentTime+0.26);
 }catch{}
 }
 
-// markdown-light → bold/italic/code/links/bullets
+// markdown-light
 function escapeHTML(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function md(s){
 s=escapeHTML(String(s||''));
@@ -377,14 +391,11 @@ els.send.disabled = true;
 try{
 // create final assistant bubble placeholder BEFORE stream
 tip.remove();
-// seed empty assistant message in history
 const t2=load(); t2.push({role:'assistant',content:'',ts:Date.now()}); save(t2);
-// render so last assistant bubble exists to update
 render(true);
 
 const streamed = await askStream(q);
 
-// replace last assistant message content with streamed text
 const t3=load(); t3[t3.length-1].content = streamed; save(t3);
 render(true);
 playDing();
