@@ -1,13 +1,13 @@
-// server.js — Hey Bori (Experience Upgrade: streaming + UX polish, Node 20)
+// server.js — Hey Bori (Stable Non-Streaming Build)
 const express = require('express');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
 const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
 const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
-const UI_TAG = process.env.UI_TAG || 'exp-v2';
+const UI_TAG = process.env.UI_TAG || 'stable-v1';
 
-// ---------- CSP sanitizer ----------
+// --- CSP sanitizer ---
 function buildFrameAncestors(raw) {
 const cleaned = String(raw || '')
 .replace(/[\r\n'"]/g, ' ')
@@ -51,7 +51,7 @@ next();
 
 app.use(express.json());
 
-// ---------- Non-stream fallback (/api/ask) ----------
+// ---------- Non-stream API (/api/ask) ----------
 app.post('/api/ask', async (req, res) => {
 const q=(req.body?.question||'').toString().slice(0,4000);
 const hist=Array.isArray(req.body?.history)?req.body.history:[];
@@ -60,8 +60,9 @@ role:m.role==='assistant'?'assistant':'user',
 content:(m.content||'').toString().slice(0,2000)
 }));
 
-if(!process.env.OPENAI_API_KEY)
+if(!process.env.OPENAI_API_KEY){
 return res.json({answer:'OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'});
+}
 
 try{
 const r=await fetch('https://api.openai.com/v1/chat/completions',{
@@ -90,90 +91,6 @@ res.json({answer:`Temporary error. Try again.\n(detail:${String(e?.message||e)})
 }
 });
 
-// ---------- Streaming endpoint (/api/stream) (Node 20 safe) ----------
-app.post('/api/stream', async (req, res) => {
-const q = (req.body?.question || '').toString().slice(0, 4000);
-const hist = Array.isArray(req.body?.history) ? req.body.history : [];
-const mapped = hist.slice(-12).map(m => ({
-role: m.role === 'assistant' ? 'assistant' : 'user',
-content: (m.content || '').toString().slice(0, 2000)
-}));
-
-if (!process.env.OPENAI_API_KEY) {
-res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-res.write('OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
-return res.end();
-}
-
-try {
-const r = await fetch('https://api.openai.com/v1/chat/completions', {
-method: 'POST',
-headers: {
-'content-type': 'application/json',
-'authorization': `Bearer ${process.env.OPENAI_API_KEY}`
-},
-body: JSON.stringify({
-model: 'gpt-4o-mini',
-stream: true,
-messages: [
-{ role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
-...mapped,
-{ role: 'user', content: q }
-]
-})
-});
-
-res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-res.setHeader('Cache-Control', 'no-cache');
-res.setHeader('Connection', 'keep-alive');
-res.setHeader('Transfer-Encoding', 'chunked');
-
-if (!r.ok) {
-const detail = await r.text().catch(() => '');
-res.write(`Model unavailable. Try again later.\n\n(detail:${detail.slice(0,200)})`);
-return res.end();
-}
-
-// Parse OpenAI SSE → plain text chunks
-const reader = r.body.getReader();
-const decoder = new TextDecoder('utf-8');
-let buff = '';
-
-while (true) {
-const { value, done } = await reader.read();
-if (done) break;
-buff += decoder.decode(value, { stream: true });
-
-// Split into lines; keep last partial line in buffer
-const lines = buff.split('\n');
-buff = lines.pop() || '';
-
-for (const raw of lines) {
-const line = raw.trim();
-if (!line || !line.startsWith('data:')) continue;
-
-const payload = line.slice(5).trim();
-if (payload === '[DONE]') {
-res.end();
-return;
-}
-try {
-const obj = JSON.parse(payload);
-const delta = obj?.choices?.[0]?.delta?.content || '';
-if (delta) res.write(delta);
-} catch {
-// ignore keep-alives / non-json
-}
-}
-}
-res.end();
-} catch (e) {
-res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-res.write(`Temporary error. Try again.\n(detail:${String(e?.message || e)})`);
-res.end();
-}
-});
-
 // ---------- Debug ----------
 app.get('/debug',(_,res)=>{
 res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Hey Bori / debug</title>
@@ -184,7 +101,7 @@ document.getElementById('out').textContent=JSON.stringify(data,null,2);
 </script>`);
 });
 
-// ---------- UI (full experience) ----------
+// ---------- UI (hybrid layout + dark mode + nice reading) ----------
 app.get('/',(_,res)=>{
 res.type('html').send(`<!doctype html>
 <meta charset="utf-8"/>
@@ -215,17 +132,10 @@ padding:20px 18px;border:1px solid var(--line);border-radius:12px;background:#ff
 .user .bubble{background:var(--user);border-color:#d8e7ff}
 .assistant .bubble{background:var(--assistant)}
 .name{font-size:12px;font-weight:700;color:#333;margin-bottom:4px;letter-spacing:.2px}
-.typing .bubble{display:inline-block}
-.typing .dots{display:inline-block}
-.typing .dots span{display:inline-block;width:6px;height:6px;margin-right:3px;border-radius:50%;background:#bdbdbd;animation:blink 1.2s infinite ease-in-out}
-.typing .dots span:nth-child(2){animation-delay:.2s}
-.typing .dots span:nth-child(3){animation-delay:.4s}
-@keyframes blink{0%,80%,100%{opacity:.2}40%{opacity:1}}
 form{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px;box-shadow:0 -6px 16px rgba(0,0,0,.04)}
 .bar{max-width:var(--max);margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px}
 textarea{width:100%;min-height:64px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px}
 button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}
-.float-bottom{position:absolute;right:18px;bottom:100px;background:#fff;border:1px solid var(--line);border-radius:999px;padding:8px 12px;box-shadow:var(--shadow);font-size:12px;cursor:pointer;display:none}
 footer{text-align:center;padding:18px;color:var(--muted);border-top:1px solid var(--line)}
 /* Mobile comfort */
 @media (max-width:560px){
@@ -266,8 +176,6 @@ footer{background:#0f1218;border-top-color:#222b37;color:var(--muted)}
 <div id="messages"></div>
 </main>
 
-<button id="toBottom" class="float-bottom">Jump to latest ↓</button>
-
 <form id="ask-form" class="bar" autocomplete="off">
 <textarea id="q" placeholder="Haz tu pregunta… / Ask your question…" required></textarea>
 <button id="send" type="submit">Send</button>
@@ -277,149 +185,40 @@ footer{background:#0f1218;border-top-color:#222b37;color:var(--muted)}
 
 <script>
 const KEY='bori_chat_transcript_v1';
-const els={
-list:document.getElementById('messages'),
-form:document.getElementById('ask-form'),
-q:document.getElementById('q'),
-send:document.getElementById('send'),
-toBottom:document.getElementById('toBottom')
-};
-
-// tiny utils
+const els={list:document.getElementById('messages'),form:document.getElementById('ask-form'),q:document.getElementById('q'),send:document.getElementById('send')};
 const load=()=>{ try{return JSON.parse(localStorage.getItem(KEY))||[]}catch{return[]} };
 const save=t=>localStorage.setItem(KEY,JSON.stringify(t));
 const when=ts=>new Date(ts||Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
-
-// sound (soft ding)
-function playDing(){
-try{
-const ctx=new (window.AudioContext||window.webkitAudioContext)();
-const o=ctx.createOscillator(), g=ctx.createGain();
-o.type='sine'; o.frequency.value=880; g.gain.value=0.001;
-o.connect(g); g.connect(ctx.destination);
-o.start(); g.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime+0.25);
-o.stop(ctx.currentTime+0.26);
-}catch{}
-}
-
-// markdown-light
 function escapeHTML(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function md(s){
-s=escapeHTML(String(s||''));
-s=s.replace(/^###### (.*)$/gm,'<h6>$1</h6>').replace(/^##### (.*)$/gm,'<h5>$1</h5>').replace(/^#### (.*)$/gm,'<h4>$1</h4>').replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/^## (.*)$/gm,'<h2>$1</h2>').replace(/^# (.*)$/gm,'<h1>$1</h1>');
-s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/`([^`]+)`/g,'<code>$1</code>');
-s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+s=escapeHTML(String(s||'')); s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
+s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 s=s.replace(/^(?:- |\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/gms,'<ul>$1</ul>');
-s=s.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
-return '<p>'+s+'</p>';
+s=s.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>'); return '<p>'+s+'</p>';
 }
-
 function bubble(role, content, ts){
-const isUser = role==='user';
-const who = isUser?'Coach':'Hey Bori';
-const init= isUser?'C':'B';
-return \`
-<div class="row \${isUser?'right user':'assistant'}">
-<div class="avatar">\${init}</div>
-<div>
-<div class="name">\${who} · \${when(ts)}</div>
-<div class="bubble">\${md(content)}</div>
-</div>
-</div>\`;
+const isUser = role==='user'; const who=isUser?'Coach':'Hey Bori'; const init=isUser?'C':'B';
+return \`<div class="row \${isUser?'right user':'assistant'}"><div class="avatar">\${init}</div><div><div class="name">\${who} · \${when(ts)}</div><div class="bubble">\${md(content)}</div></div></div>\`;
 }
-
-function bubbleTyping(){
-const wrap=document.createElement('div'); wrap.className='row assistant typing';
-wrap.innerHTML=\`
-<div class="avatar">B</div>
-<div>
-<div class="name">Hey Bori · typing…</div>
-<div class="bubble"><span class="dots"><span></span><span></span><span></span></span></div>
-</div>\`;
-els.list.appendChild(wrap);
-els.list.scrollTop=els.list.scrollHeight;
-return wrap;
+function render(scrollEnd=false){ const t=load(); els.list.innerHTML=t.map(m=>bubble(m.role,m.content,m.ts)).join(''); if(scrollEnd) els.list.scrollTop=els.list.scrollHeight; }
+async function askBackend(question){
+const history = load().slice(-12);
+const r = await fetch('/api/ask',{ method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ question, history })});
+const j = await r.json().catch(()=>({answer:'Error'}));
+return j.answer || 'No answer.';
 }
-
-function render(scrollEnd=false){
-const t=load();
-els.list.innerHTML = t.map(m => bubble(m.role, m.content, m.ts)).join('');
-if(scrollEnd) els.list.scrollTop = els.list.scrollHeight;
-els.toBottom.style.display = (els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight) > 80 ? 'block' : 'none';
-}
-
-// streaming fetch to /api/stream
-async function askStream(question){
-const history=load().slice(-12);
-const resp = await fetch('/api/stream',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question,history})});
-if(!resp.ok) return '(Error: request failed)';
-const reader = resp.body.getReader();
-let out = '';
-const dec = new TextDecoder('utf-8');
-while(true){
-const {value, done} = await reader.read();
-if(done) break;
-out += dec.decode(value, {stream:true});
-// update last assistant bubble live
-const last = els.list.querySelector('.row.assistant:last-child .bubble');
-if(last) last.innerHTML = md(out);
-els.list.scrollTop = els.list.scrollHeight;
-}
-return out.trim() || '(No answer)';
-}
-
-// jump to latest control
-els.list.addEventListener('scroll', () => {
-els.toBottom.style.display = (els.list.scrollHeight - els.list.scrollTop - els.list.clientHeight) > 80 ? 'block' : 'none';
-});
-els.toBottom.addEventListener('click', ()=> els.list.scrollTop = els.list.scrollHeight);
-
-// form handler (streaming)
 els.form.addEventListener('submit', async (e)=>{
 e.preventDefault();
-const q = els.q.value.trim(); if(!q) return;
-els.q.value=''; els.q.style.height='auto';
-
-// push user turn
-const t=load(); t.push({role:'user',content:q,ts:Date.now()}); save(t);
-render(true);
-
-// show typing bubble
-const tip = bubbleTyping();
-els.send.disabled = true;
-
+const q=els.q.value.trim(); if(!q) return; els.q.value=''; els.q.style.height='auto';
+const t=load(); t.push({role:'user',content:q,ts:Date.now()}); save(t); render(true);
+els.send.disabled=true;
 try{
-// create final assistant bubble placeholder BEFORE stream
-tip.remove();
-const t2=load(); t2.push({role:'assistant',content:'',ts:Date.now()}); save(t2);
-render(true);
-
-const streamed = await askStream(q);
-
-const t3=load(); t3[t3.length-1].content = streamed; save(t3);
-render(true);
-playDing();
+const answer=await askBackend(q);
+const t2=load(); t2.push({role:'assistant',content:answer,ts:Date.now()}); save(t2); render(true);
 }catch(err){
-const tErr=load(); tErr.push({role:'assistant',content:'Error: '+(err?.message||err),ts:Date.now()}); save(tErr);
-render(true);
-}finally{
-els.send.disabled=false; els.q.focus();
-}
+const t2=load(); t2.push({role:'assistant',content:'Error: '+(err?.message||err),ts:Date.now()}); save(t2); render(true);
+}finally{ els.send.disabled=false; els.q.focus(); }
 });
-
-// Enter=send, Shift+Enter=newline
-els.q.addEventListener('keydown', (e)=>{
-if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); els.form.requestSubmit(); }
-});
-
-// auto-grow textarea
-els.q.addEventListener('input', ()=>{
-els.q.style.height='auto';
-els.q.style.height=Math.min(els.q.scrollHeight, window.innerHeight*0.32)+'px';
-});
-
-// initial paint
-render(true);
 </script>`);
 });
 
@@ -429,4 +228,4 @@ console.error('Express error:',err?.stack||err);
 res.status(500).type('text/plain').send('Internal Server Error (see logs)');
 });
 
-app.listen(PORT,()=>console.log(`✅ Hey Bori (Experience Upgrade) listening on ${PORT}`));
+app.listen(PORT,()=>console.log(`✅ Hey Bori (Stable Non-Streaming) listening on ${PORT}`));
