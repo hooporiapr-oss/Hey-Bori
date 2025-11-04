@@ -1,4 +1,4 @@
-// Hey Bori — Stable core (separate HTML + JS, zero deps, continuity fixed)
+// Hey Bori — Stable core (split HTML/JS, continuity, mobile-safe)
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e?.stack || e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e?.stack || e));
@@ -149,15 +149,20 @@ const PAGE_HTML =
 ' <textarea id="q" placeholder="Haz tu pregunta… / Ask your question…" required></textarea>' +
 ' <button id="send" type="submit">Send</button>' +
 '</form>' +
-'<footer>© Bori Labs LLC — Let’s Go Pa’lante 🏀 • Build: core-split</footer>' +
-'<script src="/app.js"></script>';
+'<footer>© Bori Labs LLC — Let’s Go Pa’lante 🏀 • Build: core-mobile</footer>' +
+'<script src="/app.js?v=mobile-safe"></script>';
 
 const APP_JS =
 'console.log("[Hey Bori] app.js loaded");' +
+// ---- storage: in-memory fallback so mobile iframes never crash ----
+'(function(){window.__bori_mem = window.__bori_mem || [];})();' +
 'var KEY="bori_chat_transcript_v1";' +
+'function canStore(){try{var t="__t"+Date.now();localStorage.setItem(t,"1");localStorage.removeItem(t);return true}catch(e){return false}}' +
+'var HAS_LS = canStore();' +
+'function load(){if(HAS_LS){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){}}return (window.__bori_mem||[])}' +
+'function save(t){if(HAS_LS){try{localStorage.setItem(KEY,JSON.stringify(t));return}catch(e){}}window.__bori_mem=t}' +
+
 'var els={list:document.getElementById("messages"),form:document.getElementById("ask-form"),q:document.getElementById("q"),send:document.getElementById("send")};' +
-'function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}' +
-'function save(t){localStorage.setItem(KEY,JSON.stringify(t))}' +
 'function when(ts){return new Date(ts||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}' +
 'function escapeHTML(s){return String(s||"").replace(/[&<>\"\\\']/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","\\\'":"&#39;"}[m]})}' +
 'function md(s){s=escapeHTML(String(s||""));' +
@@ -168,11 +173,35 @@ const APP_JS =
 ' s=s.replace(/(<li>[\\s\\S]*?<\\/li>)/g,"<ul>$1<\\/ul>");' +
 ' s=s.replace(/\\n{2,}/g,"</p><p>").replace(/\\n/g,"<br>");' +
 ' return "<p>"+s+"</p>"}' +
+
 'function bubble(role,content,ts){var isUser=role==="user";var who=isUser?"Coach":"Hey Bori";var init=isUser?"C":"B";return "<div class=\\"row "+(isUser?"right user":"assistant")+"\\"><div class=\\"avatar\\">"+init+"</div><div><div class=\\"name\\">"+who+" · "+when(ts)+"</div><div class=\\"bubble\\">"+md(content)+"</div></div></div>"}' +
 'function render(scrollEnd){var t=load();els.list.innerHTML=t.map(function(m){return bubble(m.role,m.content,m.ts)}).join("");if(scrollEnd)els.list.scrollTop=els.list.scrollHeight}' +
-'async function askBackend(question){var history=load().slice(-12);var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:question,history:history})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
-'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";els.q.style.height="auto";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var answer=await askBackend(q);var t2=load();t2.push({role:"assistant",content:answer,ts:Date.now()});save(t2);render(true)}catch(err){var t3=load();t3.push({role:"assistant",content:"Error: "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus()}});' +
-'console.log("[hey-bori] local history size:", (load()||[]).length);' +
+
+// ---- ping server on load (mobile connectivity test) ----
+'async function ping(){try{const r=await fetch("/api/ping");return (await r.json()).ok===true}catch(e){return false}}' +
+
+// ---- ask backend with last 12 turns ----
+'async function askBackend(question){' +
+' var history=load().slice(-12);' +
+' var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:question,history:history})});' +
+' var j=await r.json().catch(function(){return{answer:"Error"}});' +
+' return j.answer||"No answer."}' +
+
+// ---- submit flow (with on-screen error for mobile) ----
+'els.form.addEventListener("submit",async function(e){' +
+' e.preventDefault();' +
+' var q=els.q.value.trim(); if(!q) return; els.q.value=""; els.q.style.height="auto";' +
+' var t=load(); t.push({role:"user",content:q,ts:Date.now()}); save(t); render(true); els.send.disabled=true;' +
+' try{' +
+' var alive = await ping(); if(!alive){ throw new Error("No connection to server") }' +
+' var answer = await askBackend(q);' +
+' var t2=load(); t2.push({role:"assistant",content:answer,ts:Date.now()}); save(t2); render(true);' +
+' }catch(err){' +
+' var t3=load(); t3.push({role:"assistant",content:"(mobile) Could not reach the server. Try again.\\nDetail: "+(err&&err.message||err),ts:Date.now()}); save(t3); render(true);' +
+' }finally{ els.send.disabled=false; els.q.focus(); }' +
+'});' +
+
+'console.log("[hey-bori] storage:", HAS_LS?"localStorage":"in-memory", "history size:", (load()||[]).length);' +
 'render(true);';
 
 // ---------- server ----------
@@ -181,8 +210,10 @@ try {
 const reqUrl = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
 if (setCommonHeaders(res, reqUrl)) { res.end(); return; }
 
+// health
 if (req.method === 'GET' && reqUrl.pathname === '/healthz') return text(res, 200, 'ok');
 
+// debug (server-side info)
 if (req.method === 'GET' && reqUrl.pathname === '/debug') {
 const d = {
 in_iframe: (req.headers['sec-fetch-dest'] === 'iframe') || false,
@@ -194,16 +225,19 @@ csp: CSP_VALUE
 return html(res, '<pre>'+JSON.stringify(d,null,2)+'</pre>');
 }
 
-if (req.method === 'GET' && reqUrl.pathname === '/') {
-return html(res, PAGE_HTML);
+// ping (client connectivity check)
+if (req.method === 'GET' && reqUrl.pathname === '/api/ping') {
+return json(res, 200, { ok: true, ts: Date.now() });
 }
 
+// page + assets
+if (req.method === 'GET' && reqUrl.pathname === '/') return html(res, PAGE_HTML);
 if (req.method === 'GET' && reqUrl.pathname === '/app.js') {
 res.writeHead(200, {'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'});
 return res.end(Buffer.from(APP_JS));
 }
 
-// -------- CONTINUITY-FIXED ask endpoint --------
+// ask (continuity + de-dupe)
 if (req.method === 'POST' && reqUrl.pathname === '/api/ask') {
 let body = '';
 req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
@@ -212,22 +246,16 @@ try {
 const j = JSON.parse(body || '{}');
 const q = (j.question || '').toString().slice(0, 4000);
 
-// 1) Normalize and keep last 12 turns
 const hist = Array.isArray(j.history) ? j.history : [];
-const mapped = hist
-.map(m => ({
+const mapped = hist.map(m => ({
 role: (m && m.role) === 'assistant' ? 'assistant' : 'user',
 content: ((m && m.content) || '').toString().slice(0, 2000)
-}))
-.filter(m => m.content);
+})).filter(m => m.content);
 
 const trimmed = mapped.slice(-12);
-
-// 2) De-dupe: avoid appending q if it's already the last user item
 const last = trimmed[trimmed.length - 1];
 const shouldAppendQ = !(last && last.role === 'user' && last.content === q);
 
-// 3) Build final messages
 const messages = [
 { role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Use the entire previous conversation as context. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
 ...trimmed,
@@ -245,22 +273,6 @@ return json(res, 200, { answer: 'Temporary error. Try again.\n(detail: ' + (e.me
 return;
 }
 
-// -------- history debug (optional) --------
-if (req.method === 'POST' && reqUrl.pathname === '/debug-history') {
-let body = '';
-req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
-req.on('end', () => {
-try {
-const j = JSON.parse(body || '{}');
-const hist = Array.isArray(j.history) ? j.history : [];
-return json(res, 200, { count: hist.length, sample: hist.slice(-4) });
-} catch (e) {
-return json(res, 200, { error: e.message || String(e) });
-}
-});
-return;
-}
-
 text(res, 404, 'Not Found');
 } catch (e) {
 console.error('Server error:', e?.stack || e);
@@ -269,5 +281,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () => {
-console.log('✅ Hey Bori (core-split+continuity) listening on ' + PORT);
+console.log('✅ Hey Bori (core-mobile) listening on ' + PORT);
 });
