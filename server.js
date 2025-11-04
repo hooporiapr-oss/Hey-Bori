@@ -138,7 +138,7 @@ footer{text-align:center;padding:18px;color:var(--muted);border-top:1px solid va
 <div class="logo">PR</div>
 <div>
 <div class="title">La Voz de Puerto Rico — Hey Bori</div>
-<div class="subtitle">ES/EN • Spanish first, then English • Continuous conversation</div>
+<div class="subtitle">ES/EN Español or English • Ask Me Anything</div>
 </div>
 </div>
 </header>
