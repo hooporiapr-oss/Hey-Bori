@@ -1,16 +1,32 @@
-// server.js — Bori Chat (full): UI + /api/ask + CSP + 301 + no-cache + debug
+// server.js — Bori Chat (final build with safe CSP sanitizer)
 const express = require('express');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
 const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
-const FRAME_ANCESTORS = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
+const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
 const UI_TAG = process.env.UI_TAG || 'v1';
+
+// ----- Helper to sanitize CSP -----
+function buildFrameAncestors(raw) {
+const cleaned = String(raw || '')
+.replace(/[\r\n'"]/g, ' ') // strip control chars & quotes
+.replace(/\s+/g, ' ') // collapse whitespace
+.trim();
+const parts = cleaned
+.split(/[,\s]+/)
+.map(s => s.replace(/[^\x20-\x7E]/g, '')) // keep visible ASCII only
+.filter(Boolean);
+const defaults = ['https://heybori.co', 'https://chat.heybori.co'];
+return `frame-ancestors ${(parts.length ? parts : defaults).join(' ')}`;
+}
+const CSP_VALUE = buildFrameAncestors(FRAME_ANCESTORS_RAW);
+console.log('CSP →', CSP_VALUE);
 
 app.set('trust proxy', true);
 app.set('etag', false);
 
-// No-cache (prevent stale HTML/JS)
+// no-cache
 app.use((req, res, next) => {
 res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
 res.setHeader('Pragma', 'no-cache');
@@ -18,13 +34,14 @@ res.setHeader('Expires', '0');
 next();
 });
 
-// CSP: only allow embedding from heybori domains
+// safe CSP header
 app.use((req, res, next) => {
-res.setHeader('Content-Security-Policy', `frame-ancestors ${FRAME_ANCESTORS}`);
+try { res.setHeader('Content-Security-Policy', CSP_VALUE); }
+catch (e) { console.error('CSP header error:', e); }
 next();
 });
 
-// 301 redirect any *.onrender.com → custom domain
+// redirect *.onrender.com → chat.heybori.co
 app.use((req, res, next) => {
 const host = (req.headers.host || '').toLowerCase();
 if (host.endsWith('.onrender.com')) {
@@ -35,20 +52,16 @@ next();
 
 app.use(express.json());
 
-// --- OpenAI-backed endpoint with safe fallback ---
+// ---------- API ----------
 app.post('/api/ask', async (req, res) => {
 const q = (req.body?.question || '').toString().slice(0, 4000);
-
-// Fallback: never 500 if key missing
 if (!process.env.OPENAI_API_KEY) {
 return res.json({
-answer:
-'OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'
+answer: 'OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'
 });
 }
 
 try {
-// Node 18+ has global fetch
 const r = await fetch('https://api.openai.com/v1/chat/completions', {
 method: 'POST',
 headers: {
@@ -60,9 +73,7 @@ model: 'gpt-4o-mini',
 messages: [
 {
 role: 'system',
-// App rule: ES/EN note; Spanish first, then English; end signature
-content:
-'ES/EN: Start each reply with an ES/EN language note, answer in Spanish first, then English, and end with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
+content: 'ES/EN: Start every reply with ES/EN note, answer in Spanish first then English, end with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
 },
 { role: 'user', content: q }
 ]
@@ -71,152 +82,72 @@ content:
 
 if (!r.ok) {
 const detail = await r.text().catch(() => '');
-return res.json({
-answer:
-`The model is unavailable right now. Try again shortly.\n\n(detail: ${detail.slice(0, 500)})\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀`
-});
+return res.json({ answer: `The model is unavailable right now. Try again later.\n\n(detail: ${detail.slice(0,200)})` });
 }
 
 const data = await r.json();
 const answer = data?.choices?.[0]?.message?.content || 'No answer.';
 return res.json({ answer });
 } catch (e) {
-return res.json({
-answer:
-`Temporary error. Please try again.\n\n(detail: ${String(e?.message || e)})\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀`
-});
+return res.json({ answer: `Temporary error. Try again.\n(detail: ${String(e?.message || e)})` });
 }
 });
 
-// Debug page to verify iframe parent + UA, etc.
+// ---------- Debug ----------
 app.get('/debug', (_req, res) => {
-res.type('html').send(`<!doctype html>
-<meta charset="utf-8"><title>Bori /debug</title>
+res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Bori /debug</title>
 <pre id="out">Loading…</pre>
 <script>
 const data = {
-in_iframe: (window.self !== window.top),
-iframe_origin: window.location.origin,
-parent_referrer: document.referrer || null,
+in_iframe: window.self !== window.top,
+origin: window.location.origin,
+referrer: document.referrer || null,
 user_agent: navigator.userAgent
 };
 document.getElementById('out').textContent = JSON.stringify(data, null, 2);
 </script>`);
 });
 
-// UI: continuous chat with local history + export/clear
+// ---------- UI ----------
 app.get('/', (_req, res) => {
 res.type('html').send(`<!doctype html>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Bori Chat — ${UI_TAG}</title>
 <style>
-:root { --max: 900px; --line:#e9e9e9; }
-html, body { margin:0; padding:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; background:#fafafa;}
-header { padding: 16px 20px; border-bottom: 1px solid var(--line); position: sticky; top:0; background:#fff; z-index:10; }
-.brand { font-weight: 800; }
-main { max-width: var(--max); margin: 0 auto; padding: 16px 20px 120px; }
-#messages { max-height: 60vh; overflow:auto; display:flex; flex-direction:column; gap:12px; padding: 10px 0; }
-.msg { border:1px solid var(--line); border-radius: 12px; padding: 12px; background:#fff; }
-.user { background:#eef5ff; border-color:#d8e7ff; }
-.assistant { background:#f7f7f7; border-color:#eaeaea; white-space:pre-wrap;}
-.label { font-size:12px; font-weight:600; color:#444; letter-spacing:.02em }
-form { position: fixed; bottom: 0; left: 0; right: 0; background: #fff; border-top:1px solid var(--line); padding: 12px 16px; }
-.bar { max-width: var(--max); margin: 0 auto; display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items:end; }
-.group { display:flex; flex-direction:column; gap:6px; }
-textarea { width:100%; min-height: 60px; max-height: 30vh; resize: vertical; padding: 12px; font: inherit; border:1px solid var(--line); border-radius:12px; background:#fff; }
-button { padding: 11px 16px; border:1px solid #111; border-radius:12px; background:#fff; cursor:pointer; font-weight:600; }
-.actions { display:flex; gap:8px; margin-top:10px; }
-.muted { color:#666; font-size:13px; }
+:root{--max:900px;--line:#e9e9e9;}
+html,body{margin:0;padding:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:#fafafa;}
+header{padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:#fff;z-index:10;}
+.brand{font-weight:800;}
+main{max-width:var(--max);margin:0 auto;padding:16px 20px 120px;}
+#messages{max-height:60vh;overflow:auto;display:flex;flex-direction:column;gap:12px;padding:10px 0;}
+.msg{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fff;}
+.user{background:#eef5ff;border-color:#d8e7ff;}
+.assistant{background:#f7f7f7;border-color:#eaeaea;white-space:pre-wrap;}
+form{position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid var(--line);padding:12px 16px;}
+.bar{max-width:var(--max);margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;}
+textarea{width:100%;min-height:60px;max-height:30vh;resize:vertical;padding:12px;font:inherit;border:1px solid var(--line);border-radius:12px;}
+button{padding:11px 16px;border:1px solid #111;border-radius:12px;background:#fff;cursor:pointer;font-weight:600;}
 </style>
 <header><div class="brand">Bori Chat</div></header>
-<main>
-<div class="muted">Continuous chat. History is stored locally in your browser. (Build: ${UI_TAG})</div>
-<div id="messages"></div>
-<div class="actions">
-<button id="clear-btn" title="Clear history">Clear</button>
-<button id="export-btn" title="Export transcript">Export</button>
-</div>
-</main>
-<form id="ask-form" aria-label="Ask a question">
-<div class="bar">
-<div class="group">
-<label class="label" for="q">Your question</label>
-<textarea id="q" placeholder="Type your question…" required></textarea>
-</div>
-<button type="submit" id="send" aria-label="Send message">Send</button>
-</div>
-</form>
+<main><div id="messages"></div></main>
+<form id="ask-form"><div class="bar"><textarea id="q" placeholder="Ask your question…" required></textarea><button type="submit" id="send">Send</button></div></form>
 <script>
-const API_ENDPOINT = '/api/ask';
-const KEY = 'bori_chat_transcript_v1';
-const el = {
-messages: document.getElementById('messages'),
-form: document.getElementById('ask-form'),
-q: document.getElementById('q'),
-send: document.getElementById('send'),
-clear: document.getElementById('clear-btn'),
-export: document.getElementById('export-btn'),
-};
-function loadTranscript(){ try { return JSON.parse(localStorage.getItem(KEY)) || []; } catch { return []; } }
-function saveTranscript(t){ localStorage.setItem(KEY, JSON.stringify(t)); }
-function renderTranscript(){
-const t = loadTranscript();
-el.messages.innerHTML = '';
-for(const m of t){
-const div = document.createElement('div');
-div.className = 'msg ' + (m.role === 'user' ? 'user' : 'assistant');
-div.textContent = m.content;
-el.messages.appendChild(div);
-}
-el.messages.scrollTop = el.messages.scrollHeight;
-}
-async function askBackend(question){
-const resp = await fetch(API_ENDPOINT, {
-method: 'POST',
-headers: { 'content-type': 'application/json' },
-body: JSON.stringify({ question })
-});
-const data = await resp.json().catch(()=>({answer:'Error'}));
-return data.answer || 'No answer.';
-}
-el.form.addEventListener('submit', async (e) => {
-e.preventDefault();
-const question = el.q.value.trim();
-if(!question) return;
-el.q.value = '';
-const t = loadTranscript();
-t.push({ role: 'user', content: question }); saveTranscript(t); renderTranscript();
-el.send.disabled = true;
-try{
-const answer = await askBackend(question);
-const t2 = loadTranscript();
-t2.push({ role: 'assistant', content: answer }); saveTranscript(t2); renderTranscript();
-}catch(err){
-const t2 = loadTranscript();
-t2.push({ role: 'assistant', content: 'Error: ' + (err?.message || err) }); saveTranscript(t2); renderTranscript();
-}finally{
-el.send.disabled = false; el.q.focus();
-}
-});
-el.clear.addEventListener('click', () => {
-if(confirm('Clear local chat history?')){ localStorage.removeItem(KEY); renderTranscript(); }
-});
-el.export.addEventListener('click', () => {
-const t = loadTranscript();
-const blob = new Blob([JSON.stringify(t, null, 2)], { type: 'application/json' });
-const url = URL.createObjectURL(blob);
-const a = document.createElement('a'); a.href = url; a.download = 'bori-chat-transcript.json';
-document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
-});
-renderTranscript();
+const API='/api/ask';const KEY='bori_chat_transcript_v1';
+const els={m:document.getElementById('messages'),f:document.getElementById('ask-form'),q:document.getElementById('q'),s:document.getElementById('send')};
+function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch{return[]}}
+function save(t){localStorage.setItem(KEY,JSON.stringify(t))}
+function render(){const t=load();els.m.innerHTML='';for(const x of t){const d=document.createElement('div');d.className='msg '+(x.role==='user'?'user':'assistant');d.textContent=x.content;els.m.appendChild(d)}els.m.scrollTop=els.m.scrollHeight}
+async function ask(q){const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({question:q})});const j=await r.json().catch(()=>({answer:'Error'}));return j.answer||'No answer.'}
+els.f.addEventListener('submit',async e=>{e.preventDefault();const q=els.q.value.trim();if(!q)return;els.q.value='';const t=load();t.push({role:'user',content:q});save(t);render();els.s.disabled=true;try{const a=await ask(q);const t2=load();t2.push({role:'assistant',content:a});save(t2);render()}catch(e){const t2=load();t2.push({role:'assistant',content:'Error: '+(e.message||e)});save(t2);render()}finally{els.s.disabled=false;els.q.focus()}});
+render();
 </script>`);
 });
 
-// Catch-all error logger (so 500s show clearly in logs, never blank the page)
+// ----- Error logger -----
 app.use((err, req, res, next) => {
-console.error('Express error:', err && err.stack ? err.stack : err);
+console.error('Express error:', err?.stack || err);
 res.status(500).type('text/plain').send('Internal Server Error (see logs)');
 });
 
-app.listen(PORT, () => console.log(`Bori full chat listening on ${PORT}`));
+app.listen(PORT, () => console.log(`✅ Bori Chat running on ${PORT}`));
