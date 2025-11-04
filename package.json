@@ -1,7 +1,12 @@
 {
 "name": "hey-bori-minimal",
-"private": true,
 "version": "1.0.0",
-"scripts": { "start": "node server.js" },
-"engines": { "node": "20.x" }
+"private": true,
+"scripts": {
+"start": "node server.js"
+},
+"engines": {
+"node": "20.x"
+},
+"dependencies": {}
 }
