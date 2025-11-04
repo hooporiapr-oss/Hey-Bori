@@ -175,8 +175,8 @@ function escapeHTML(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','
 function md(s){
 s=escapeHTML(String(s||''));
 s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
-s=s.replace(/\`([^`]+)\`/g,'<code>$1</code>');
-s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+s=s.replace(/\\`([^\\`]+)\\`/g,'<code>$1</code>'); // backticks escaped for outer template
+s=s.replace(/$begin:math:display$([^$end:math:display$]+)\]$begin:math:text$(https?:\\/\\/[^\\s)]+)$end:math:text$/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
 s=s.replace(/^(?:- |\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/gms,'<ul>$1</ul>');
 s=s.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
 return '<p>'+s+'</p>';
