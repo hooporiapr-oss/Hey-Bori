@@ -1,5 +1,5 @@
 {
-"name": "hey-bori-clean",
+"name": "hey-bori-es-first",
 "version": "1.0.0",
 "private": true,
 "scripts": { "start": "node server.js" },
