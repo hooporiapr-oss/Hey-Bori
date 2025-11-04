@@ -115,7 +115,7 @@ return (
 'iframe{width:100%;height:100%;border:0;background:#fff;display:block}' +
 '</style>' +
 '<section class=screen>' +
-' <header class=hdr><h1 class=t>Hey Bori</h1><p class=s>Haz tu pregunta — Español primero, luego Inglés</p></header>' +
+' <header class=hdr><h1 class=t>Hey Bori</h1><p class=s>Haz tu pregunta — Español | Ask Me Anything - English</p></header>' +
 ' <div class=chat><iframe src="/inner?lang=' + encodeURIComponent(lang) + '" title="Hey Bori Chat" loading=eager></iframe></div>' +
 '</section>'
 )
