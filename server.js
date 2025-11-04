@@ -1,11 +1,14 @@
-// server.js — Hey Bori (Stable Non-Streaming Build)
+// Safe fetch shim (Node 18/20 compatible)
+const fetch = global.fetch || ((...args) =>
+import('node-fetch').then(m => m.default(...args)));
+
 const express = require('express');
 const app = express();
 
 const PORT = process.env.PORT || 10000;
 const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
 const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
-const UI_TAG = process.env.UI_TAG || 'stable-v1';
+const UI_TAG = process.env.UI_TAG || 'stable-fixfetch-v1';
 
 // --- CSP sanitizer ---
 function buildFrameAncestors(raw) {
@@ -41,7 +44,7 @@ catch(e){ console.error('CSP header error:', e); }
 next();
 });
 
-// redirect *.onrender.com → custom domain
+// 301 redirect *.onrender.com → custom domain
 app.use((req,res,next)=>{
 const host=(req.headers.host||'').toLowerCase();
 if(host.endsWith('.onrender.com'))
