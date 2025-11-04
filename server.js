@@ -46,7 +46,6 @@ res.setHeader('Cache-Control','no-store,no-cache,must-revalidate,max-age=0');
 res.setHeader('Pragma','no-cache');
 res.setHeader('Expires','0');
 res.setHeader('Content-Security-Policy', CSP_VALUE);
-// 301 redirect *.onrender.com → custom domain
 try {
 const host = (reqUrl.host || '').toLowerCase();
 if (host.endsWith('.onrender.com')) {
@@ -145,21 +144,6 @@ main{max-width:100%;padding:0 0 100px}
 #messages{border:none;border-radius:0;box-shadow:none;height:75vh;padding:16px 14px}
 .bubble{max-width:92%}
 }
-@media (prefers-color-scheme: dark){
-:root{--blue:#7fb0ff;--red:#ff6b73;--bg:#0f1115;--panel:#161920;--line:#2a2f3a;--ink:#f2f4f8;--muted:#9ba4b3;--user:#1a2130;--assistant:#161b24;--shadow:0 8px 24px rgba(0,0,0,.45);}
-body{background:var(--bg);color:var(--ink)}
-header{background:linear-gradient(90deg,#0a2a55,#11386f)}
-#messages{background:var(--panel);border-color:#2a2f3a;box-shadow:none}
-.bubble{background:#12161f;border-color:#232b38}
-.assistant .bubble{background:#12161f}
-.user .bubble{background:#172131;border-color:#263245}
-.avatar{background:#0e1420;color:#cfe0ff;border-color:#2a3445}
-.right .avatar{background:#ff4a57;color:#fff;border-color:#ffa0a6}
-form{background:#0f1218;border-top-color:#222b37;box-shadow:0 -6px 16px rgba(0,0,0,.35)}
-textarea{background:#0f131b;color:var(--ink);border-color:#283142}
-button{background:#163b77;border-color:#0d2b5b}
-footer{background:#0f1218;border-top-color:#222b37;color:#9ba4b3}
-}
 </style>
 
 <header>
@@ -189,10 +173,13 @@ const save=t=>localStorage.setItem(KEY,JSON.stringify(t));
 const when=ts=>new Date(ts||Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 function escapeHTML(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function md(s){
-s=escapeHTML(String(s||'')); s=s.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\*(.+?)\\*/g,'<em>$1</em>');
-s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); s=s.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-s=s.replace(/^(?:- |\\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\\s\\S]*?<\\/li>)/gms,'<ul>$1</ul>');
-s=s.replace(/\\n{2,}/g,'</p><p>').replace(/\\n/g,'<br>'); return '<p>'+s+'</p>';
+s=escapeHTML(String(s||''));
+s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
+s=s.replace(/\`([^`]+)\`/g,'<code>$1</code>');
+s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+s=s.replace(/^(?:- |\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/gms,'<ul>$1</ul>');
+s=s.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>');
+return '<p>'+s+'</p>';
 }
 function bubble(role, content, ts){
 const isUser = role==='user'; const who=isUser?'Coach':'Hey Bori'; const init=isUser?'C':'B';
@@ -223,30 +210,9 @@ const t2=load(); t2.push({role:'assistant',content:'Error: '+(err?.message||err)
 const server = http.createServer((req, res) => {
 try {
 const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-// common headers + redirect if needed
 if (setCommonHeaders(res, reqUrl)) { res.end(); return; }
 
-// CORS for API (simple)
-if (reqUrl.pathname.startsWith('/api/')) {
-res.setHeader('Access-Control-Allow-Origin', '*');
-res.setHeader('Access-Control-Allow-Headers', 'content-type');
-if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-}
-
-if (req.method === 'GET' && reqUrl.pathname === '/healthz') {
-return text(res, 200, 'ok');
-}
-
-if (req.method === 'GET' && reqUrl.pathname === '/debug') {
-const dbg = `<!doctype html><meta charset="utf-8"><title>Hey Bori / debug</title>
-<pre id="out">Loading…</pre>
-<script>
-const data={in_iframe:window.self!==window.top,origin:window.location.origin,referrer:document.referrer||null,user_agent:navigator.userAgent};
-document.getElementById('out').textContent=JSON.stringify(data,null,2);
-</script>`;
-res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
-return res.end(dbg);
-}
+if (req.method === 'GET' && reqUrl.pathname === '/healthz') return text(res, 200, 'ok');
 
 if (req.method === 'GET' && reqUrl.pathname === '/') {
 res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
@@ -254,7 +220,6 @@ return res.end(HTML);
 }
 
 if (req.method === 'POST' && reqUrl.pathname === '/api/ask') {
-// read body
 let body = '';
 req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
 req.on('end', async () => {
@@ -282,14 +247,11 @@ return json(res, 200, { answer: `Temporary error. Try again.\n(detail: ${e.messa
 return;
 }
 
-// 404
 text(res, 404, 'Not Found');
 } catch (e) {
-console.error('Server error:', e && e.stack ? e.stack : e);
+console.error('Server error:', e?.stack || e);
 text(res, 500, 'Internal Server Error');
 }
 });
 
-server.listen(PORT, () => {
-console.log(`✅ Hey Bori (core-https) listening on ${PORT}`);
-});
+server.listen(PORT, () => console.log(`✅ Hey Bori (core-https) listening on ${PORT}`));
