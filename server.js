@@ -1,117 +1,113 @@
-// Robust fetch: use global if present, otherwise Undici
-let fetchFn = globalThis.fetch;
-if (!fetchFn) {
-try {
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { fetch } = require('undici');
-fetchFn = fetch;
-globalThis.fetch = fetch;
-} catch (e) {
-console.error('Fetch not available and undici not installed.');
-}
-}
+// Hey Bori — Stable Non-Streaming (no fetch, no external deps)
+// Uses Node's built-in https to call OpenAI.
 
-const express = require('express');
-const app = express();
-
+const http = require('http');
+const https = require('https');
+const { URL } = require('url');
 const PORT = process.env.PORT || 10000;
-const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
-const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://chat.heybori.co';
-const UI_TAG = process.env.UI_TAG || 'stable-undici-v1';
 
-// --- CSP sanitizer ---
+const FORCE_DOMAIN = process.env.FORCE_DOMAIN || 'chat.heybori.co';
+const FRAME_ANCESTORS_RAW = process.env.CSP_ANCESTORS || 'https://heybori.co https://www.heybori.co https://chat.heybori.co';
+
+// --------- CSP (safe, simple) ----------
 function buildFrameAncestors(raw) {
 const cleaned = String(raw || '')
 .replace(/[\r\n'"]/g, ' ')
 .replace(/\s+/g, ' ')
 .trim();
-const parts = cleaned
-.split(/[,\s]+/)
-.map(s => s.replace(/[^\x20-\x7E]/g, ''))
-.filter(Boolean);
-const defaults = ['https://heybori.co', 'https://chat.heybori.co'];
-return `frame-ancestors ${(parts.length ? parts : defaults).join(' ')}`;
+const parts = cleaned.split(/[,\s]+/).filter(Boolean);
+const list = parts.length ? parts : ['https://heybori.co','https://chat.heybori.co'];
+return `frame-ancestors ${list.join(' ')}`;
 }
 const CSP_VALUE = buildFrameAncestors(FRAME_ANCESTORS_RAW);
 console.log('CSP →', CSP_VALUE);
 
-app.set('trust proxy', true);
-app.set('etag', false);
-app.use((_, res, next) => {
+// --------- tiny utils ----------
+function json(res, code, obj) {
+const body = Buffer.from(JSON.stringify(obj));
+res.writeHead(code, {
+'Content-Type': 'application/json; charset=utf-8',
+'Content-Length': body.length,
+'Cache-Control': 'no-store'
+});
+res.end(body);
+}
+function text(res, code, s) {
+const body = Buffer.from(String(s));
+res.writeHead(code, {
+'Content-Type': 'text/plain; charset=utf-8',
+'Content-Length': body.length,
+'Cache-Control': 'no-store'
+});
+res.end(body);
+}
+function setCommonHeaders(res, reqUrl) {
 res.setHeader('Cache-Control','no-store,no-cache,must-revalidate,max-age=0');
 res.setHeader('Pragma','no-cache');
 res.setHeader('Expires','0');
-next();
-});
-app.use((_, res, next) => {
-try { res.setHeader('Content-Security-Policy', CSP_VALUE); }
-catch(e){ console.error('CSP header error:', e); }
-next();
-});
-app.use((req,res,next)=>{
-const host=(req.headers.host||'').toLowerCase();
-if(host.endsWith('.onrender.com'))
-return res.redirect(301,`https://${FORCE_DOMAIN}${req.originalUrl||'/'}`);
-next();
-});
-app.use(express.json());
-
-// ---------- Non-stream API (/api/ask) ----------
-app.post('/api/ask', async (req, res) => {
-const q=(req.body?.question||'').toString().slice(0,4000);
-const hist=Array.isArray(req.body?.history)?req.body.history:[];
-const mapped=hist.slice(-12).map(m=>({
-role:m.role==='assistant'?'assistant':'user',
-content:(m.content||'').toString().slice(0,2000)
-}));
-
-if (!fetchFn) {
-return res.json({answer:'Server fetch not available. Please try again shortly.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'});
+res.setHeader('Content-Security-Policy', CSP_VALUE);
+// 301 redirect *.onrender.com → custom domain
+try {
+const host = (reqUrl.host || '').toLowerCase();
+if (host.endsWith('.onrender.com')) {
+res.statusCode = 301;
+res.setHeader('Location', `https://${FORCE_DOMAIN}${reqUrl.pathname || '/'}`);
+return true;
 }
-if(!process.env.OPENAI_API_KEY){
-return res.json({answer:'OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀'});
+} catch {}
+return false;
 }
 
-try{
-const r=await fetchFn('https://api.openai.com/v1/chat/completions',{
-method:'POST',
-headers:{
-'content-type':'application/json',
-'authorization':`Bearer ${process.env.OPENAI_API_KEY}`
+// --------- OpenAI call via https ----------
+function callOpenAI(messages) {
+return new Promise((resolve) => {
+if (!process.env.OPENAI_API_KEY) {
+return resolve('OpenAI key not set yet. Please try again soon.\n\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
+}
+
+const payload = JSON.stringify({
+model: 'gpt-4o-mini',
+messages
+});
+
+const req = https.request({
+method: 'POST',
+hostname: 'api.openai.com',
+path: '/v1/chat/completions',
+headers: {
+'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+'Content-Type': 'application/json',
+'Content-Length': Buffer.byteLength(payload)
 },
-body:JSON.stringify({
-model:'gpt-4o-mini',
-messages:[
-{role:'system',content:'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'},
-...mapped,
-{role:'user',content:q}
-]
-})
+timeout: 30000
+}, (r) => {
+let data = '';
+r.setEncoding('utf8');
+r.on('data', chunk => { data += chunk; });
+r.on('end', () => {
+try {
+if (r.statusCode && r.statusCode >= 200 && r.statusCode < 300) {
+const j = JSON.parse(data);
+const out = j?.choices?.[0]?.message?.content || 'No answer.';
+resolve(out);
+} else {
+resolve(`Model unavailable. Try again later.\n\n(detail: ${String(data).slice(0,200)})`);
+}
+} catch (e) {
+resolve(`Temporary error. Try again.\n(detail: ${e.message || e})`);
+}
 });
-if(!r.ok){
-const detail=await r.text().catch(()=> '');
-return res.json({answer:`Model unavailable. Try again later.\n\n(detail:${detail.slice(0,200)})`});
-}
-const data=await r.json();
-res.json({answer:data?.choices?.[0]?.message?.content||'No answer.'});
-}catch(e){
-res.json({answer:`Temporary error. Try again.\n(detail:${String(e?.message||e)})`});
-}
 });
 
-// ---------- Debug ----------
-app.get('/debug',(_,res)=>{
-res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Hey Bori / debug</title>
-<pre id="out">Loading…</pre>
-<script>
-const data={in_iframe:window.self!==window.top,origin:window.location.origin,referrer:document.referrer||null,user_agent:navigator.userAgent};
-document.getElementById('out').textContent=JSON.stringify(data,null,2);
-</script>`);
+req.on('error', (e) => resolve(`Network error. Try again.\n(detail: ${e.message || e})`));
+req.on('timeout', () => { req.destroy(); resolve('Timeout. Try again.'); });
+req.write(payload);
+req.end();
 });
+}
 
-// ---------- UI ----------
-app.get('/',(_,res)=>{
-res.type('html').send(`<!doctype html>
+// --------- HTML UI ----------
+const HTML = `<!doctype html>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
 <meta name="color-scheme" content="light dark"/>
@@ -123,7 +119,7 @@ res.type('html').send(`<!doctype html>
 html,body{margin:0;height:100%;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink);}
 header{background:linear-gradient(90deg,var(--blue),#0f4fa8);color:#fff;padding:22px 20px;box-shadow:var(--shadow);}
 .brand{max-width:var(--max);margin:0 auto;display:flex;align-items:center;gap:12px;}
-.logo{width:28px;height:28px;display:grid;place-items:center;background:#fff;border-radius:8px;color:var(--red);font-weight:800;}
+.logo{width:28px;height:28px;display:grid;place-items:center;background:#fff;border-radius:8px;color:#d61e2b;font-weight:800;}
 .title{font-weight:800;letter-spacing:.2px;}
 .subtitle{opacity:.9;font-size:14px;}
 main{width:100%;margin:0 auto;padding:0 0 120px;max-width:var(--max);}
@@ -143,7 +139,7 @@ form{position:sticky;bottom:0;background:#fff;border-top:1px solid var(--line);p
 .bar{max-width:var(--max);margin:0 auto;display:grid;grid-template-columns:1fr auto;gap:10px}
 textarea{width:100%;min-height:64px;resize:vertical;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px}
 button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}
-footer{text-align:center;padding:18px;color:var(--muted);border-top:1px solid var(--line)}
+footer{text-align:center;padding:18px;color:#60646c;border-top:1px solid var(--line)}
 @media (max-width:560px){
 main{max-width:100%;padding:0 0 100px}
 #messages{border:none;border-radius:0;box-shadow:none;height:75vh;padding:16px 14px}
@@ -162,8 +158,7 @@ header{background:linear-gradient(90deg,#0a2a55,#11386f)}
 form{background:#0f1218;border-top-color:#222b37;box-shadow:0 -6px 16px rgba(0,0,0,.35)}
 textarea{background:#0f131b;color:var(--ink);border-color:#283142}
 button{background:#163b77;border-color:#0d2b5b}
-footer{background:#0f1218;border-top-color:#222b37;color:var(--muted)}
-.name{color:#cfd7e6}
+footer{background:#0f1218;border-top-color:#222b37;color:#9ba4b3}
 }
 </style>
 
@@ -186,7 +181,7 @@ footer{background:#0f1218;border-top-color:#222b37;color:var(--muted)}
 <button id="send" type="submit">Send</button>
 </form>
 
-<footer>© Bori Labs LLC — Let’s Go Pa’lante 🏀 • Build: ${UI_TAG}</footer>
+<footer>© Bori Labs LLC — Let’s Go Pa’lante 🏀 • Build: core-https</footer>
 
 <script>
 const KEY='bori_chat_transcript_v1';
@@ -196,10 +191,10 @@ const save=t=>localStorage.setItem(KEY,JSON.stringify(t));
 const when=ts=>new Date(ts||Date.now()).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
 function escapeHTML(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
 function md(s){
-s=escapeHTML(String(s||'')); s=s.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>');
-s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); s=s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-s=s.replace(/^(?:- |\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\s\S]*?<\/li>)/gms,'<ul>$1</ul>');
-s=s.replace(/\n{2,}/g,'</p><p>').replace(/\n/g,'<br>'); return '<p>'+s+'</p>';
+s=escapeHTML(String(s||'')); s=s.replace(/\\*\\*(.+?)\\*\\*/g,'<strong>$1</strong>').replace(/\\*(.+?)\\*/g,'<em>$1</em>');
+s=s.replace(/`([^`]+)`/g,'<code>$1</code>'); s=s.replace(/\\[([^\\]]+)\\]\\((https?:\\/\\/[^\\s)]+)\\)/g,'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+s=s.replace(/^(?:- |\\* )(.*)$/gm,'<li>$1</li>').replace(/(<li>[\\s\\S]*?<\\/li>)/gms,'<ul>$1</ul>');
+s=s.replace(/\\n{2,}/g,'</p><p>').replace(/\\n/g,'<br>'); return '<p>'+s+'</p>';
 }
 function bubble(role, content, ts){
 const isUser = role==='user'; const who=isUser?'Coach':'Hey Bori'; const init=isUser?'C':'B';
@@ -224,13 +219,79 @@ const t2=load(); t2.push({role:'assistant',content:answer,ts:Date.now()}); save(
 const t2=load(); t2.push({role:'assistant',content:'Error: '+(err?.message||err),ts:Date.now()}); save(t2); render(true);
 }finally{ els.send.disabled=false; els.q.focus(); }
 });
-</script>`);
+</script>`;
+
+// --------- server ----------
+const server = http.createServer((req, res) => {
+try {
+const reqUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+// common headers + redirect if needed
+if (setCommonHeaders(res, reqUrl)) { res.end(); return; }
+
+// CORS for API (simple)
+if (reqUrl.pathname.startsWith('/api/')) {
+res.setHeader('Access-Control-Allow-Origin', '*');
+res.setHeader('Access-Control-Allow-Headers', 'content-type');
+if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
+}
+
+if (req.method === 'GET' && reqUrl.pathname === '/healthz') {
+return text(res, 200, 'ok');
+}
+
+if (req.method === 'GET' && reqUrl.pathname === '/debug') {
+const dbg = `<!doctype html><meta charset="utf-8"><title>Hey Bori / debug</title>
+<pre id="out">Loading…</pre>
+<script>
+const data={in_iframe:window.self!==window.top,origin:window.location.origin,referrer:document.referrer||null,user_agent:navigator.userAgent};
+document.getElementById('out').textContent=JSON.stringify(data,null,2);
+</script>`;
+res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+return res.end(dbg);
+}
+
+if (req.method === 'GET' && reqUrl.pathname === '/') {
+res.writeHead(200, {'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store'});
+return res.end(HTML);
+}
+
+if (req.method === 'POST' && reqUrl.pathname === '/api/ask') {
+// read body
+let body = '';
+req.on('data', chunk => { body += chunk; if (body.length > 1e6) req.destroy(); });
+req.on('end', async () => {
+try {
+const j = JSON.parse(body || '{}');
+const q = (j.question || '').toString().slice(0,4000);
+const hist = Array.isArray(j.history) ? j.history : [];
+const mapped = hist.slice(-12).map(m => ({
+role: m.role === 'assistant' ? 'assistant' : 'user',
+content: (m.content || '').toString().slice(0,2000)
+}));
+
+const messages = [
+{ role: 'system', content: 'ES/EN: Begin with a short ES/EN note. Spanish first, then English. Keep replies tight, readable, and friendly. Use short paragraphs and bullets when helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.' },
+...mapped,
+{ role: 'user', content: q }
+];
+
+const answer = await callOpenAI(messages);
+return json(res, 200, { answer });
+} catch (e) {
+return json(res, 200, { answer: `Temporary error. Try again.\n(detail: ${e.message || e})` });
+}
+});
+return;
+}
+
+// 404
+text(res, 404, 'Not Found');
+} catch (e) {
+console.error('Server error:', e && e.stack ? e.stack : e);
+text(res, 500, 'Internal Server Error');
+}
 });
 
-// error logger
-app.use((err,req,res,next)=>{
-console.error('Express error:',err?.stack||err);
-res.status(500).type('text/plain').send('Internal Server Error (see logs)');
+server.listen(PORT, () => {
+console.log(`✅ Hey Bori (core-https) listening on ${PORT}`);
 });
-
-app.listen(PORT,()=>console.log(`✅ Hey Bori (Stable Non-Streaming • Undici) listening on ${PORT}`));
