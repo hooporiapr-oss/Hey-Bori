@@ -1,11 +1,8 @@
 {
-"name": "hey-bori",
+"name": "hey-bori-core",
 "version": "1.0.0",
 "private": true,
 "scripts": { "start": "node server.js" },
 "engines": { "node": "20.x" },
-"dependencies": {
-"express": "^4.19.2",
-"undici": "^6.19.8"
-}
+"dependencies": {}
 }
