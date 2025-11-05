@@ -1,4 +1,4 @@
-// Hey Bori — Mobile chat (continuity ON, ES→EN), pinned input, labeled buttons
+// Hey Bori — STABLE (Single-Turn): ES first → EN, no history, minimal + robust
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
 
@@ -30,37 +30,36 @@ return true;
 }
 return false;
 }
-function text(res, code, s) {
-res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' });
-res.end(String(s));
-}
-function html(res, s) {
-res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-res.end(s);
-}
-function json(res, code, obj) {
-res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
-res.end(JSON.stringify(obj));
+function text(res, code, s) { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(String(s)); }
+function html(res, s) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(s); }
+function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); }
+
+// ---------- health ----------
+const startedAt = new Date().toISOString();
+function health(res) {
+json(res, 200, { ok: true, startedAt, node: process.version });
 }
 
-// ---------- simple rate limit ----------
-const BUCKET = new Map();
-function rateOK(ip) {
-const now = Date.now();
-const b = BUCKET.get(ip) || { n: 0, t: now };
-if (now - b.t > 60000) { b.n = 0; b.t = now; }
-b.n++;
-BUCKET.set(ip, b);
-return b.n <= 30;
-}
-
-// ---------- OpenAI call ----------
-function callOpenAI(messages) {
+// ---------- OpenAI (single-turn) ----------
+function callOpenAI(question, lang) {
 return new Promise(resolve => {
-if (!process.env.OPENAI_API_KEY)
+if (!process.env.OPENAI_API_KEY) {
 return resolve('Falta la clave de API / Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
+}
+const systemPrompt =
+(lang === 'en')
+? 'Respond ONLY in English. Be concise and helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
+: 'Responde primero en Español (PR) y luego repite en Inglés. Sé claro y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.';
 
-const body = JSON.stringify({ model: 'gpt-4o-mini', messages });
+const body = JSON.stringify({
+model: 'gpt-4o-mini',
+temperature: 0.3,
+messages: [
+{ role: 'system', content: systemPrompt },
+{ role: 'user', content: String(question || '').slice(0, 4000) }
+]
+});
+
 const req = https.request(
 {
 method: 'POST',
@@ -94,123 +93,66 @@ req.write(body); req.end();
 });
 }
 
-// ---------- shells ----------
-function mobileShellHTML(lang) {
-return (
+// ---------- UI (single file) ----------
+const PAGE =
 '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">' +
-'<title>Hey Bori</title><style>' +
-'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111}' +
-'.screen{height:100svh;height:100dvh;display:flex;flex-direction:column;background:#fff}' +
-'.hdr{padding:16px 18px 8px}.t{margin:0 0 4px;font:800 20px/1.2 system-ui}.s{margin:0;color:#666;font:500 13px/1.4 system-ui}' +
-'.chat{flex:1 1 auto;min-height:0}iframe{width:100%;height:100%;border:0;background:#fff;display:block}' +
-'</style><section class=screen><header class=hdr>' +
-'<h1 class=t>Hey Bori</h1><p class=s>Haz tu Pregunta para Comenzar/Continuar — Español o | English - Ask Me Anything to Get Started/Continue</p>' +
-'</header><div class=chat><iframe src="/inner?lang=' + encodeURIComponent(lang) + '" title="Hey Bori Chat" loading=eager></iframe></div></section>'
-);
-}
-
-const INNER_HTML =
-'<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">' +
-'<title>Hey Bori</title><style>' +
-':root{--line:#e6e6e6;--user:#eef4ff;--assistant:#f7f7f7}' +
+'<title>Hey Bori — Stable</title>' +
+'<style>' +
 'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;overflow:hidden}' +
-'main{position:relative;height:100%;display:flex;flex-direction:column;background:#fff}' +
-'#messages{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px 14px 100px 14px;scroll-behavior:smooth}' +
+'header{padding:14px 16px;border-bottom:1px solid #eee}' +
+'h1{margin:0;font:800 20px/1.2 system-ui} .sub{margin:4px 0 0;color:#666;font:500 13px/1.4 system-ui}' +
+'#messages{position:absolute;top:74px;bottom:78px;left:0;right:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}' +
 '.row{display:flex;gap:10px;align-items:flex-start}' +
-'.avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800;flex:0 0 28px;border:1px solid var(--line)}' +
+'.avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid #e6e6e6}' +
 '.right{justify-content:flex-end}.right .avatar{background:#0a3a78;color:#fff;border-color:#b2c8ff}' +
-'.bubble{max-width:85%;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
-'.user .bubble{background:var(--user);border-color:#d8e7ff}.assistant .bubble{background:var(--assistant)}' +
-'.name{font-size:12px;font-weight:700;color:#333;margin-bottom:4px;letter-spacing:.2px}' +
-'#toolbar{position:absolute;top:10px;right:14px;display:flex;gap:8px;z-index:30}' +
-'#toolbar button{font-size:13px;padding:6px 10px;border:1px solid #0c2a55;border-radius:8px;cursor:pointer;font-weight:600}' +
-'#copyLast{background:#ffffff;color:#0c2a55}' +
-'#copyLast:hover{background:#e6f0ff}' +
-'#clearChat{background:#ff4d4d;color:#fff;border-color:#ff4d4d}' +
-'#clearChat:hover{background:#e63e3e}' +
-'form{position:fixed;bottom:0;left:0;right:0;z-index:20;display:grid;grid-template-columns:1fr auto;gap:10px;border-top:1px solid var(--line);padding:10px 14px;background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,0.04)}' +
-'textarea{width:100%;min-height:56px;resize:none;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px;line-height:1.4}' +
-'button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}' +
-'button:disabled{opacity:0.6;cursor:default}' +
-'</style><main>' +
+'.bubble{max-width:85%;border:1px solid #e6e6e6;border-radius:12px;padding:10px 12px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
+'.user .bubble{background:#eef4ff;border-color:#d8e7ff}.assistant .bubble{background:#f7f7f7}' +
+'.meta{font-size:11px;color:#555;margin-bottom:3px}' +
+'form{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:1fr auto auto;gap:10px;border-top:1px solid #eee;padding:10px 14px;background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,.04)}' +
+'textarea{width:100%;min-height:56px;resize:none;padding:12px;border:1px solid #ddd;border-radius:12px;font-size:16px;line-height:1.4}' +
+'button{padding:12px 16px;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}' +
+'#clear{background:#ff4d4d;border-color:#ff4d4d} #clear:hover{background:#e63e3e}' +
+'#send{background:#0a3a78} #send:disabled{opacity:.6;cursor:default}' +
+'#err{display:none;position:fixed;top:0;left:0;right:0;background:#ffefef;color:#a40000;border-bottom:1px solid #e5bcbc;padding:8px 12px;z-index:9999;font-size:13px;white-space:pre-wrap}' +
+'</style>' +
+'<div id=err></div>' +
+'<header><h1>Hey Bori</h1><p class=sub>Ask your question — Spanish first, then English (single-turn)</p></header>' +
 '<div id=messages></div>' +
-'<div id=toolbar><button id=copyLast title="Copy last response">Copy Last</button><button id=clearChat title="Clear chat history">Clear Chat</button></div>' +
-'<form id=ask-form autocomplete=off><textarea id=q placeholder="Comenzar.-Continuar… / Start.-Continue…" required></textarea><button id=send type=submit>Send</button></form>' +
-'</main><script>' +
-// --- state & elements ---
-'var LANG=(new URLSearchParams(location.search).get("lang")||"es").toLowerCase();' +
-'var KEY="bori_chat_v6";' +
-'function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}' +
-'function save(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(e){}}' +
-'var els={list:document.getElementById("messages"),form:document.getElementById("ask-form"),q:document.getElementById("q"),send:document.getElementById("send"),copyBtn:document.getElementById("copyLast"),clearBtn:document.getElementById("clearChat")};' +
-// --- render helpers ---
+'<form id=ask autocomplete=off>' +
+'<textarea id=q placeholder="Ask your question to start/continue in ES and EN." required></textarea>' +
+'<button id=send type=submit>Send</button>' +
+'<button id=clear type=button>Clear</button>' +
+'</form>' +
+'<script>' +
+'window.addEventListener("error",function(e){var b=document.getElementById("err");b.textContent="[JS] "+(e.message||"error");b.style.display="block";});' +
+'var els={list:document.getElementById("messages"),form:document.getElementById("ask"),q:document.getElementById("q"),send:document.getElementById("send"),clear:document.getElementById("clear")};' +
 'function when(t){return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}' +
-'function esc(s){return String(s).replace(/[&<>"\\\']/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","\\\'":"&#39;"}[m]})}' +
-'function md(s){s=esc(s);s=s.replace(/\\*\\*(.+?)\\*\\*/g,"<strong>$1</strong>").replace(/\\*(.+?)\\*/g,"<em>$1</em>").replace(/\\n/g,"<br>");return "<p>"+s+"</p>"}' +
-'function bubble(r,c,t){var u=r==="user";var n=u?"Coach":"Hey Bori";var i=u?"C":"B";return "<div class=\\"row "+(u?"right user":"assistant")+"\\"><div class=avatar>"+i+"</div><div><div class=name>"+n+" · "+when(t)+"</div><div class=bubble>"+md(c)+"</div></div></div>"}' +
-'function render(end){var t=load();els.list.innerHTML=t.map(function(m){return bubble(m.role,m.content,m.ts)}).join("");if(end)els.list.scrollTop=els.list.scrollHeight}' +
-// --- API call (always send history for continuity) ---
-'async function askServer(question){var history=load().map(function(m){return{role:m.role==="assistant"?"assistant":"user",content:String(m.content||"").slice(0,2000)}});' +
-'var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:question,history:history,lang:LANG})});' +
-'var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
-// --- typing effect ---
-'function typeWriter(t){var o="",i=0,step=Math.max(2,Math.floor(t.length/200));(function tick(){o+=t.slice(i,i+step);i+=step;var a=load();a[a.length-1]={role:"assistant",content:o,ts:Date.now()};save(a);render(true);if(i<t.length)setTimeout(tick,18);})();}' +
-// --- send handler ---
-'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var a=await askServer(q);var t2=load();t2.push({role:"assistant",content:"",ts:Date.now()});save(t2);render(true);typeWriter(a)}catch(err){var t3=load();t3.push({role:"assistant",content:"(network) "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus()}});' +
-// --- toolbar: clear/copy ---
-'els.clearBtn.addEventListener("click",function(){localStorage.removeItem(KEY);render(true);alert("Chat cleared ✅")});' +
-'els.copyBtn.addEventListener("click",async function(){try{var t=load();for(var i=t.length-1;i>=0;i--){if(t[i].role==="assistant"){var tmp=document.createElement("div");tmp.innerHTML=md(t[i].content);var txt=tmp.textContent||tmp.innerText||"";await navigator.clipboard.writeText(txt);alert("Copied ✅");return}}alert("Nothing to copy")}catch(e){alert("Copy failed")}});' +
-// --- first paint ---
-'render(true);' +
+'function esc(s){return String(s).replace(/[&<>\"\\\']/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","\\\'":"&#39;"}[m]})}' +
+'function bubble(role,content,ts){var u=role==="user";var who=u?"Coach":"Hey Bori";var i=u?"C":"B";return "<div class=\\"row "+(u?"right user":"assistant")+"\\"><div class=avatar>"+i+"</div><div><div class=meta>"+who+" · "+when(ts)+"</div><div class=bubble>"+esc(content)+"</div></div></div>"}' +
+'function renderOne(role,content){els.list.insertAdjacentHTML("beforeend",bubble(role,content,Date.now()));els.list.scrollTop=els.list.scrollHeight;}' +
+'async function askOne(q){var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q,lang:"es"})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
+'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";renderOne("user",q);els.send.disabled=true;try{var a=await askOne(q);renderOne("assistant",a);}catch(err){renderOne("assistant","(network) "+(err&&err.message||err));}finally{els.send.disabled=false;els.q.focus();}});' +
+'els.clear.addEventListener("click",function(){els.list.innerHTML="";});' +
 '</script>';
 
-// ---------- server (no deps) ----------
+// ---------- server ----------
 const server = http.createServer((req, res) => {
 try {
 const u = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
 if (setCommonHeaders(res, u)) { res.end(); return; }
 
-// root: mobile shell (default lang=es)
-if (req.method === 'GET' && u.pathname === '/') {
-const lang = (u.searchParams.get('lang') || 'es').toLowerCase();
-return html(res, mobileShellHTML(lang));
-}
-
-if (req.method === 'GET' && u.pathname === '/inner') {
-return html(res, INNER_HTML);
-}
+if (req.method === 'GET' && u.pathname === '/health') return health(res);
+if (req.method === 'GET' && u.pathname === '/') return html(res, PAGE);
 
 if (req.method === 'POST' && u.pathname === '/api/ask') {
-// rate limit
-const ip = (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '0';
-if (!rateOK(ip)) return json(res, 429, { answer: 'Límite de uso — intenta en un minuto.' });
-
-// read body
 let body = '';
 req.on('data', c => (body += c));
 req.on('end', async () => {
 try {
 const j = JSON.parse(body || '{}');
-const q = (j.question || '').toString().slice(0, 4000);
+const q = (j.question || '').toString();
 const lang = (j.lang || 'es').toLowerCase();
-const hist = Array.isArray(j.history) ? j.history : [];
-
-// system prompt: ES first → EN, use full context
-const systemPrompt =
-lang === 'en'
-? 'Respond ONLY in English. Use full conversation context. Be concise and helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
-: 'Responde SIEMPRE en dos partes: 1) Español (PR) primero, 2) Inglés después. Usa todo el contexto previo. Sé claro, breve y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.';
-
-const msgs = [
-{ role: 'system', content: systemPrompt },
-...hist.map(m => ({
-role: m && m.role === 'assistant' ? 'assistant' : 'user',
-content: ((m && m.content) || '').toString().slice(0, 2000)
-})),
-{ role: 'user', content: q }
-].slice(-30); // keep final context bounded
-
-const a = await callOpenAI(msgs);
+const a = await callOpenAI(q, lang);
 return json(res, 200, { answer: a });
 } catch (e) {
 return json(res, 200, { answer: 'Error — ' + e.message });
@@ -226,4 +168,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () =>
-console.log('✅ Hey Bori (continuity fixed) listening on ' + PORT)
+console.log('✅ Hey Bori — Stable single-turn listening on ' + PORT)
+);
