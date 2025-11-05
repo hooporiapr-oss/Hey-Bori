@@ -1,5 +1,5 @@
 // Hey Bori — self-contained PWA + greeting + TRUE continuity + mobile layout.
-// Spanish first → English. Stores convo locally; server uses last 30 turns.
+// Memory fix: explicit session-recall instructions in system prompt (ES first → EN).
 // — Bori Labs LLC — Let’s Go Pa’lante 🏀
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
@@ -45,7 +45,11 @@ function openAIChat(messages){
 return new Promise(resolve=>{
 if(!process.env.OPENAI_API_KEY)
 return resolve('Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
-const body=JSON.stringify({model:'gpt-4o-mini',temperature:0.3,messages});
+const body=JSON.stringify({
+model:'gpt-4o-mini',
+temperature:0.2, // more deterministic for recall
+messages
+});
 const req=https.request(
 {method:'POST',hostname:'api.openai.com',path:'/v1/chat/completions',
 headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)},timeout:30000},
@@ -136,7 +140,7 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 
 <script>
 // ===== Storage & flags =====
-var CONT = true; // ON by default
+var CONT = true; // continuity ON
 var HIST_KEY="bori_chat_hist_v1";
 var NAME_KEY="bori_user_name";
 var ASK_KEY ="bori_ask_name";
@@ -302,7 +306,7 @@ if(req.method==='GET'&&u.pathname==='/icon-512.png') return send(res,200,'image/
 // Page
 if(req.method==='GET'&&u.pathname==='/') return html(res,PAGE);
 
-// API: use last 30 normalized turns (true continuity)
+// API: use last 30 normalized turns (true continuity) + explicit recall rules
 if(req.method==='POST'&&u.pathname==='/api/ask'){
 let body='';req.on('data',c=>body+=c);req.on('end',async()=>{
 try{
@@ -316,9 +320,19 @@ role:(m.role==='assistant')?'assistant':'user',
 content:String(m.content||'').slice(0,2000)
 })).slice(-30);
 
-const systemPrompt=(lang==='en')
-? 'Respond ONLY in English. Use conversation context if provided. Be concise and avoid repeating earlier answers unless asked. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
-: 'Responde primero en Español (PR) y luego repite en Inglés. Usa TODO el contexto previo si se provee. Sé conciso y evita repetir salvo que te lo pidan. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.';
+// === MEMORY-FRIENDLY SYSTEM PROMPT ===
+const SYS_EN = "You are Hey Bori. You DO have access to the full conversation context shown in prior messages in THIS chat session. " +
+"You MUST use that context to answer follow-ups, including recalling codes, numbers, names, preferences, steps, and facts shared earlier in the same session. " +
+"If the information is not present in the conversation so far, ask the user to repeat it briefly instead of saying you cannot remember. " +
+"Be concise. Output Spanish first, then English. Always end with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
+const SYS_ES = "Eres Hey Bori. SÍ tienes acceso al contexto completo de esta conversación en esta sesión. " +
+"DEBES usar ese contexto para responder seguimientos, incluyendo recordar códigos, números, nombres, preferencias, pasos y hechos compartidos previamente en esta misma sesión. " +
+"Si la información NO aparece en la conversación, pide al usuario que la repita brevemente (no digas que no puedes recordar). " +
+"Sé conciso. Escribe primero en Español y luego en Inglés. Termina siempre con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
+
+const systemPrompt = (lang === 'en')
+? `${SYS_EN}`
+: `${SYS_ES}`;
 
 const msgs = cont
 ? [{role:'system',content:systemPrompt}, ...normHist, {role:'user',content:q}]
@@ -335,4 +349,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori — continuity locked; PWA; greeting — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori — continuity fixed with explicit recall; PWA; greeting — listening on '+PORT));
