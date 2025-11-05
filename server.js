@@ -1,4 +1,7 @@
-// Hey Bori — STABLE (Single-Turn): ES first → EN, no history, minimal + robust
+// Hey Bori — Continuity ON (best engagement) with mobile polish & chat UX upgrades.
+// Add ?cont=off to switch a session to single-turn.
+// ES first → EN, CSP, 301 redirect, no external dependencies.
+
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
 
@@ -34,106 +37,98 @@ function text(res, code, s) { res.writeHead(code, { 'Content-Type': 'text/plain;
 function html(res, s) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(s); }
 function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); }
 
-// ---------- health ----------
-const startedAt = new Date().toISOString();
-function health(res) {
-json(res, 200, { ok: true, startedAt, node: process.version });
-}
-
-// ---------- OpenAI (single-turn) ----------
-function callOpenAI(question, lang) {
+// ---------- OpenAI ----------
+function openAIChat(messages) {
 return new Promise(resolve => {
 if (!process.env.OPENAI_API_KEY) {
-return resolve('Falta la clave de API / Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
+return resolve('Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
 }
-const systemPrompt =
-(lang === 'en')
-? 'Respond ONLY in English. Be concise and helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
-: 'Responde primero en Español (PR) y luego repite en Inglés. Sé claro y útil. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.';
-
-const body = JSON.stringify({
-model: 'gpt-4o-mini',
-temperature: 0.3,
-messages: [
-{ role: 'system', content: systemPrompt },
-{ role: 'user', content: String(question || '').slice(0, 4000) }
-]
-});
-
+const body = JSON.stringify({ model: 'gpt-4o-mini', temperature: 0.3, messages });
 const req = https.request(
-{
-method: 'POST',
-hostname: 'api.openai.com',
-path: '/v1/chat/completions',
-headers: {
-Authorization: 'Bearer ' + process.env.OPENAI_API_KEY,
-'Content-Type': 'application/json',
-'Content-Length': Buffer.byteLength(body)
-},
-timeout: 30000
-},
+{ method: 'POST', hostname: 'api.openai.com', path: '/v1/chat/completions',
+headers: { Authorization: 'Bearer ' + process.env.OPENAI_API_KEY, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
+timeout: 30000 },
 r => {
-let d = '';
-r.setEncoding('utf8');
-r.on('data', c => (d += c));
+let d=''; r.setEncoding('utf8');
+r.on('data', c => d += c);
 r.on('end', () => {
-try {
-const j = JSON.parse(d);
-const out = j?.choices?.[0]?.message?.content || 'Error temporal — intenta otra vez.';
-resolve(out);
-} catch (e) {
-resolve('Error temporal — ' + e.message);
-}
+try { const j = JSON.parse(d); resolve(j?.choices?.[0]?.message?.content || 'Temporary error — try again.'); }
+catch(e){ resolve('Temporary error — ' + e.message); }
 });
 }
 );
-req.on('error', e => resolve('Error de red — ' + e.message));
-req.on('timeout', () => { req.destroy(); resolve('Tiempo de espera agotado'); });
+req.on('error', e => resolve('Network error — ' + e.message));
+req.on('timeout', () => { req.destroy(); resolve('Request timed out'); });
 req.write(body); req.end();
 });
 }
 
-// ---------- UI (single file) ----------
+// ---------- Page (continuity default; ?cont=off disables) ----------
 const PAGE =
 '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">' +
-'<title>Hey Bori — Stable</title>' +
+'<title>Hey Bori</title>' +
 '<style>' +
 'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;overflow:hidden}' +
 'header{padding:14px 16px;border-bottom:1px solid #eee}' +
 'h1{margin:0;font:800 20px/1.2 system-ui} .sub{margin:4px 0 0;color:#666;font:500 13px/1.4 system-ui}' +
-'#messages{position:absolute;top:74px;bottom:78px;left:0;right:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}' +
+'#messages{position:absolute;top:74px;bottom:78px;left:0;right:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth}' +
 '.row{display:flex;gap:10px;align-items:flex-start}' +
 '.avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid #e6e6e6}' +
 '.right{justify-content:flex-end}.right .avatar{background:#0a3a78;color:#fff;border-color:#b2c8ff}' +
 '.bubble{max-width:85%;border:1px solid #e6e6e6;border-radius:12px;padding:10px 12px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
 '.user .bubble{background:#eef4ff;border-color:#d8e7ff}.assistant .bubble{background:#f7f7f7}' +
 '.meta{font-size:11px;color:#555;margin-bottom:3px}' +
-'form{position:fixed;bottom:0;left:0;right:0;display:grid;grid-template-columns:1fr auto auto;gap:10px;border-top:1px solid #eee;padding:10px 14px;background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,.04)}' +
+'form{position:fixed;bottom:0;left:0;right:0;z-index:20;display:grid;grid-template-columns:1fr auto auto auto;gap:10px;border-top:1px solid #eee;padding:10px 14px;padding-bottom:calc(10px + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,.04)}' +
 'textarea{width:100%;min-height:56px;resize:none;padding:12px;border:1px solid #ddd;border-radius:12px;font-size:16px;line-height:1.4}' +
 'button{padding:12px 16px;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}' +
 '#clear{background:#ff4d4d;border-color:#ff4d4d} #clear:hover{background:#e63e3e}' +
+'#newchat{background:#444;border-color:#444} #newchat:hover{background:#333}' +
 '#send{background:#0a3a78} #send:disabled{opacity:.6;cursor:default}' +
 '#err{display:none;position:fixed;top:0;left:0;right:0;background:#ffefef;color:#a40000;border-bottom:1px solid #e5bcbc;padding:8px 12px;z-index:9999;font-size:13px;white-space:pre-wrap}' +
 '</style>' +
 '<div id=err></div>' +
-'<header><h1>Hey Bori</h1><p class=sub>Ask your question — Spanish first, then English (single-turn)</p></header>' +
+'<header><h1>Hey Bori</h1><p class=sub>Spanish first, then English · Continuity ON (add ?cont=off for single-turn)</p></header>' +
 '<div id=messages></div>' +
 '<form id=ask autocomplete=off>' +
-'<textarea id=q placeholder="Ask your question to start/continue in ES and EN." required></textarea>' +
+'<textarea id=q placeholder="Ask your question in ES or EN…" required></textarea>' +
 '<button id=send type=submit>Send</button>' +
 '<button id=clear type=button>Clear</button>' +
+'<button id=newchat type=button>New Chat</button>' +
 '</form>' +
 '<script>' +
-'window.addEventListener("error",function(e){var b=document.getElementById("err");b.textContent="[JS] "+(e.message||"error");b.style.display="block";});' +
-'var els={list:document.getElementById("messages"),form:document.getElementById("ask"),q:document.getElementById("q"),send:document.getElementById("send"),clear:document.getElementById("clear")};' +
+// ===== JS starts =====
+'window.addEventListener("error",function(e){var b=document.getElementById("err");if(!b)return;b.textContent="[JS] "+(e.message||"error");b.style.display="block";});' +
+// continuity flag: default true, ?cont=off disables
+'var CONT_PARAM=(new URLSearchParams(location.search).get("cont")||"").toLowerCase();' +
+'var CONT = CONT_PARAM==="off" ? false : true;' +
+// local history helpers
+'var KEY="bori_chat_hist_v1";' +
+'function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}' +
+'function save(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(e){}}' +
+// elements
+'var els={list:document.getElementById("messages"),form:document.getElementById("ask"),q:document.getElementById("q"),send:document.getElementById("send"),clear:document.getElementById("clear"),newchat:document.getElementById("newchat")};' +
+// utils
 'function when(t){return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"})}' +
 'function esc(s){return String(s).replace(/[&<>\"\\\']/g,function(m){return{"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","\\\'":"&#39;"}[m]})}' +
 'function bubble(role,content,ts){var u=role==="user";var who=u?"Coach":"Hey Bori";var i=u?"C":"B";return "<div class=\\"row "+(u?"right user":"assistant")+"\\"><div class=avatar>"+i+"</div><div><div class=meta>"+who+" · "+when(ts)+"</div><div class=bubble>"+esc(content)+"</div></div></div>"}' +
-'function renderOne(role,content){els.list.insertAdjacentHTML("beforeend",bubble(role,content,Date.now()));els.list.scrollTop=els.list.scrollHeight;}' +
-'async function askOne(q){var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q,lang:"es"})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
-'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";renderOne("user",q);els.send.disabled=true;try{var a=await askOne(q);renderOne("assistant",a);}catch(err){renderOne("assistant","(network) "+(err&&err.message||err));}finally{els.send.disabled=false;els.q.focus();}});' +
-'els.clear.addEventListener("click",function(){els.list.innerHTML="";});' +
-'</script>';
+'function scrollToEnd(){els.list.scrollTop=els.list.scrollHeight}' +
+'function render(){var h=CONT?load():[];els.list.innerHTML=h.map(function(m){return bubble(m.role,m.content,m.ts)}).join("");scrollToEnd();}' +
+// auto-resize textarea + Enter-to-send
+'(function(){var ta=els.q;function fit(){ta.style.height="auto";ta.style.height=Math.min(180,ta.scrollHeight)+"px";}ta.addEventListener("input",fit);ta.addEventListener("focus",fit);setTimeout(fit,0);})();' +
+'els.q.addEventListener("keydown",function(e){if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();els.send.click();}});' +
+// call server (send history if CONT)
+'async function askServer(q){var history=CONT?load().map(function(m){return{role:m.role,content:String(m.content||"").slice(0,2000)}}):[];var r=await fetch("/api/ask",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({question:q,lang:"es",history:history,cont:CONT})});var j=await r.json().catch(function(){return{answer:"Error"}});return j.answer||"No answer."}' +
+// submit handler
+'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";if(CONT){var h=load();h.push({role:"user",content:q,ts:Date.now()});save(h);render();}else{els.list.insertAdjacentHTML("beforeend",bubble("user",q,Date.now()));scrollToEnd();}' +
+'els.send.disabled=true;try{var a=await askServer(q);if(CONT){var h2=load();h2.push({role:"assistant",content:a,ts:Date.now()});save(h2);render();}else{els.list.insertAdjacentHTML("beforeend",bubble("assistant",a,Date.now()));scrollToEnd();}}catch(err){var msg="(network) "+(err&&err.message||err);if(CONT){var h3=load();h3.push({role:"assistant",content:msg,ts:Date.now()});save(h3);render();}else{els.list.insertAdjacentHTML("beforeend",bubble("assistant",msg,Date.now()));scrollToEnd();}}finally{els.send.disabled=false;els.q.focus();}});' +
+// clear thread only
+'els.clear.addEventListener("click",function(){if(CONT){try{localStorage.removeItem(KEY)}catch(e){};render();}else{els.list.innerHTML="";}});' +
+// new chat (full reset + reload)
+'els.newchat.addEventListener("click",function(){try{localStorage.removeItem(KEY)}catch(e){};location.replace(location.pathname + location.search);});' +
+// first paint
+'render();' +
+// ===== JS ends =====
+'<\\/script>';
 
 // ---------- server ----------
 const server = http.createServer((req, res) => {
@@ -141,7 +136,6 @@ try {
 const u = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
 if (setCommonHeaders(res, u)) { res.end(); return; }
 
-if (req.method === 'GET' && u.pathname === '/health') return health(res);
 if (req.method === 'GET' && u.pathname === '/') return html(res, PAGE);
 
 if (req.method === 'POST' && u.pathname === '/api/ask') {
@@ -150,10 +144,28 @@ req.on('data', c => (body += c));
 req.on('end', async () => {
 try {
 const j = JSON.parse(body || '{}');
-const q = (j.question || '').toString();
+const q = (j.question || '').toString().slice(0, 4000);
 const lang = (j.lang || 'es').toLowerCase();
-const a = await callOpenAI(q, lang);
-return json(res, 200, { answer: a });
+const cont = !!j.cont;
+const hist = Array.isArray(j.history) ? j.history : [];
+
+const systemPrompt = (lang === 'en')
+? 'Respond ONLY in English. Use conversation context if provided. Be concise and avoid repeating earlier answers unless asked. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
+: 'Responde primero en Español (PR) y luego repite en Inglés. Usa TODO el contexto previo si se provee. Sé conciso y evita repetir salvo que te lo pidan. Termina con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.';
+
+const msgs = cont
+? [
+{ role: 'system', content: systemPrompt },
+...hist.map(m => ({ role: (m.role === 'assistant') ? 'assistant' : 'user', content: String(m.content||'').slice(0,2000) })).slice(-30),
+{ role: 'user', content: q }
+]
+: [
+{ role: 'system', content: systemPrompt },
+{ role: 'user', content: q }
+];
+
+const answer = await openAIChat(msgs);
+return json(res, 200, { answer });
 } catch (e) {
 return json(res, 200, { answer: 'Error — ' + e.message });
 }
@@ -168,5 +180,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () =>
-console.log('✅ Hey Bori — Stable single-turn listening on ' + PORT)
+console.log('✅ Hey Bori — Continuity default; single-turn with ?cont=off — listening on ' + PORT)
 );
