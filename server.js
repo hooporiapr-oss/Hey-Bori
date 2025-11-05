@@ -1,6 +1,5 @@
-// Hey Bori — self-contained PWA + greeting + TRUE continuity + dynamic greeting bar
-// FULL GRADIENT BACKGROUND (Bori Blue -> Sky Blue) + mobile-first layout.
-// Spanish first → English. Local name memory. — Bori Labs LLC — Let’s Go Pa’lante 🏀
+// Hey Bori — full gradient + dynamic greeting bar + TRUE continuity + PWA
+// Fix: correct esc() so inline script runs. — Bori Labs LLC — Let’s Go Pa’lante 🏀
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
@@ -98,10 +97,7 @@ const PAGE = `<!doctype html><html lang="en"><head>
 --border:#e6e6e6;
 }
 html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bori-deep) 0%,var(--bori-sky) 100%);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
-/* Container uses transparent background so gradient shows through */
 .app{min-height:100svh;display:flex;flex-direction:column;background:transparent}
-
-/* Header sits on gradient; make content white for contrast */
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
 background:linear-gradient(180deg,rgba(10,58,120,0.85) 0%, rgba(10,58,120,0.55) 100%);backdrop-filter:saturate(1.2) blur(2px);
 border-bottom:1px solid rgba(255,255,255,0.2)}
@@ -110,26 +106,18 @@ border-bottom:1px solid rgba(255,255,255,0.2)}
 .namepill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;
 font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px;cursor:pointer}
 .namepill .dot{width:8px;height:8px;border-radius:50%;background:#fff}
-
-/* Toolbar buttons — outline style on gradient */
 .toolbar{display:flex;gap:8px}
 button{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.65);background:transparent;color:#fff;font-weight:800;cursor:pointer}
 button:hover{background:rgba(255,255,255,0.08)}
-
-/* Messages area — bubbles float on gradient; give soft shadows */
 #messages{flex:1 1 auto;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
 .row{display:flex;gap:10px;align-items:flex-start}
 .avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid rgba(255,255,255,0.6);color:#fff}
 .right{justify-content:flex-end}.right .avatar{background:rgba(255,255,255,0.2)}
 .avatar{background:rgba(255,255,255,0.2)}
-
-/* White bubbles with light shadow for contrast on gradient */
 .bubble{max-width:85%;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--white);white-space:pre-wrap;line-height:1.55;
 box-shadow:0 6px 18px rgba(0,0,0,0.08)}
 .user .bubble{background:#eef4ff;border-color:#d8e7ff}
 .assistant .bubble{background:#ffffff}
-
-/* Input bar floats above gradient with white surface */
 form{position:sticky;bottom:0;left:0;right:0;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,0.35);
 padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));
 background:linear-gradient(0deg, rgba(255,255,255,0.85), rgba(255,255,255,0.92));backdrop-filter:blur(6px)}
@@ -186,9 +174,16 @@ btnName:document.getElementById("btnName"),typing:document.getElementById("typin
 namePill:document.getElementById("namePill"),namePillText:document.getElementById("namePillText")};
 
 function when(t){ return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }
-function esc(s){ return String(s).replace(/[&<>\"\\']/g,function(m){return {"&":"&amp;","<":"&lt;","">":"&gt;","\\"":"&quot;","'":"&#39;"}[m] }) }
+
+// FIXED esc(): correctly escape & < > " '
+function esc(s){
+return String(s).replace(/[&<>\"']/g, function(m){
+return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
+});
+}
+
 function bubble(role,content,ts){
-var u=role==="user"; var who=u?"Coach":"Hey Bori"; var i=u?"C":"B";
+var u=role==="user"; var i=u?"C":"B";
 return '<div class="row '+(u?'right user':'assistant')+'"><div class=avatar>'+i+
 '</div><div><div class=bubble>'+esc(content)+'</div></div></div>';
 }
@@ -354,7 +349,7 @@ if(req.method==='GET'&&u.pathname==='/icon-512.png') return send(res,200,'image/
 // Page
 if(req.method==='GET'&&u.pathname==='/') return html(res,PAGE);
 
-// API: use last 30 normalized turns (true continuity) + explicit recall rules
+// API: last 30 normalized turns + explicit recall rules
 if(req.method==='POST'&&u.pathname==='/api/ask'){
 let body='';req.on('data',c=>body+=c);req.on('end',async()=>{
 try{
@@ -393,4 +388,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori — full gradient; dynamic bar; continuity — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori — full gradient fixed; dynamic bar; continuity — listening on '+PORT));
