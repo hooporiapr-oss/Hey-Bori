@@ -1,5 +1,5 @@
-// Hey Bori — Continuity default; mobile-friendly layout (toolbar top, roomy input bottom), smooth scrolling.
-// Add ?cont=off for single-turn. ES first → EN. CSP + 301 redirect. No external deps.
+// Hey Bori — PWA installable + continuity default + mobile-friendly layout.
+// Adds: manifest, icons, service worker (cache shell; never cache /api/ask).
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
@@ -14,7 +14,13 @@ const FRAME_ANCESTORS_RAW =
 process.env.CSP_ANCESTORS ||
 'https://heybori.co https://www.heybori.co https://chat.heybori.co';
 
-// ---------- headers / CSP ----------
+// ---------- basic utils ----------
+function text(res, code, s) { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(String(s)); }
+function html(res, s) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(s); }
+function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); }
+function send(res, code, type, buf) { res.writeHead(code, { 'Content-Type': type, 'Cache-Control':'public, max-age=31536000, immutable' }); res.end(buf); }
+
+// ---------- CSP + redirect ----------
 function buildFrameAncestors(raw) {
 const c = String(raw || '').replace(/[\r\n'"]/g, ' ').replace(/\s+/g, ' ').trim();
 const list = c.split(/[,\s]+/).filter(Boolean);
@@ -23,6 +29,7 @@ return 'frame-ancestors ' + (list.length ? list : ['https://heybori.co', 'https:
 const CSP_VALUE = buildFrameAncestors(FRAME_ANCESTORS_RAW);
 function setCommonHeaders(res, u) {
 res.setHeader('Cache-Control', 'no-store');
+// Only frame-ancestors; we intentionally avoid worker-src restrictions so SW can register
 res.setHeader('Content-Security-Policy', CSP_VALUE);
 const host = (u.host || '').toLowerCase();
 if (host.endsWith('.onrender.com')) {
@@ -32,9 +39,6 @@ return true;
 }
 return false;
 }
-function text(res, code, s) { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(String(s)); }
-function html(res, s) { res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }); res.end(s); }
-function json(res, code, obj) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(obj)); }
 
 // ---------- OpenAI ----------
 function openAIChat(messages) {
@@ -62,13 +66,62 @@ req.write(body); req.end();
 });
 }
 
-// ---------- Page (toolbar top, roomy input bottom; continuity default; ?cont=off disables) ----------
+// ---------- ICONS (embedded PNGs) ----------
+const ICON192 = Buffer.from(
+'iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAQAAAB3mCQtAAAAAklEQVR4AewaftIAAAGLSURBVO3BQY4AAAwEwST9x1w2mQwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADwH1yBAAFr0mBvAAAAAElFTkSuQmCC',
+'base64'
+); // tiny placeholder 192x192 (blue square). Replace later with branded.
+const ICON512 = Buffer.from(
+'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAgCAQAAAB3bN0sAAAAAklEQVR4AWNgYGBgYGBg+P8fAAGmAQm2+0j+AAAAAElFTkSuQmCC',
+'base64'
+); // tiny placeholder 512x512. Replace for production branding.
+
+// ---------- MANIFEST & SW ----------
+const MANIFEST =
+JSON.stringify({
+name: "Hey Bori",
+short_name: "Hey Bori",
+description: "Bilingual chat — Spanish first, then English.",
+start_url: "/",
+scope: "/",
+display: "standalone",
+background_color: "#ffffff",
+theme_color: "#0a3a78",
+icons: [
+{ src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+{ src: "/icon-512.png", sizes: "512x512", type: "image/png" }
+]
+});
+
+const SW_JS =
+`const CACHE_NAME='bori-shell-v1';
+const SHELL=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
+self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(SHELL)).then(self.skipWaiting()))});
+self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k))))).then(()=>self.clients.claim()))});
+self.addEventListener('fetch',e=>{
+const url=new URL(e.request.url);
+// Never cache API calls
+if(url.pathname.startsWith('/api/')){ return; }
+// For navigation & shell assets: try cache first, then network
+if(e.request.mode==='navigate' || SHELL.includes(url.pathname)){
+e.respondWith(
+caches.match(e.request,{ignoreSearch:true}).then(hit=>hit||fetch(e.request).catch(()=>caches.match('/')))
+);
+}
+});`;
+
+// ---------- PAGE (toolbar top, roomy input bottom; continuity default; ?cont=off disables) ----------
 const PAGE =
-'<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">' +
+'<!doctype html><html lang="en"><head>' +
+'<meta charset=utf-8>' +
+'<meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">' +
+'<meta name="theme-color" content="#0a3a78">' +
+'<link rel="manifest" href="/manifest.webmanifest">' +
+'<link rel="icon" href="/icon-192.png">' +
+'<link rel="apple-touch-icon" href="/icon-192.png">' +
 '<title>Hey Bori</title>' +
 '<style>' +
 'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111}' +
-/* app shell as column; lets messages flex and actually scroll */
 '.app{min-height:100svh;min-height:100dvh;display:flex;flex-direction:column;background:#fff}' +
 'header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #eee}' +
 '.title{margin:0;font:800 20px/1.2 system-ui}' +
@@ -77,7 +130,6 @@ const PAGE =
 'button{padding:10px 14px;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer;white-space:nowrap}' +
 '#btnClear{background:#ff4d4d;border-color:#ff4d4d}#btnClear:hover{background:#e63e3e}' +
 '#btnNew{background:#444;border-color:#444}#btnNew:hover{background:#333}' +
-/* messages area flexes and scrolls; smooth + iOS momentum */
 '#messages{flex:1 1 auto;min-height:0;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}' +
 '.row{display:flex;gap:10px;align-items:flex-start}' +
 '.avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid #e6e6e6}' +
@@ -85,7 +137,6 @@ const PAGE =
 '.bubble{max-width:85%;border:1px solid #e6e6e6;border-radius:12px;padding:10px 12px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
 '.user .bubble{background:#eef4ff;border-color:#d8e7ff}.assistant .bubble{background:#f7f7f7}' +
 '.meta{font-size:11px;color:#555;margin-bottom:3px}' +
-/* bottom input bar: textarea + compact Send on right */
 'form{position:sticky;bottom:0;left:0;right:0;z-index:20;display:flex;align-items:center;gap:10px;border-top:1px solid #eee;padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,.04)}' +
 'textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px 12px;border:1px solid #ddd;border-radius:12px;font-size:16px;line-height:1.4}' +
 '#send{flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;padding:0;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}' +
@@ -93,10 +144,11 @@ const PAGE =
 '#err{display:none;position:fixed;top:0;left:0;right:0;background:#ffefef;color:#a40000;border-bottom:1px solid #e5bcbc;padding:8px 12px;z-index:9999;font-size:13px;white-space:pre-wrap}' +
 '#typing{padding:0 14px 8px;color:#666;opacity:.9;font:500 12px/1.4 system-ui;display:none}' +
 '</style>' +
+'</head><body>' +
 '<div id=err></div>' +
 '<section class="app">' +
 '<header>' +
-'<div><h1 class="title">Hey Bori</h1><p class="sub">Spanish first, then English · Continuity ON (add ?cont=off for single-turn)</p></div>' +
+'<div><h1 class="title">Hey Bori</h1><p class="sub">Spanish first, then English · Continuity ON (add ?cont=off)</p></div>' +
 '<div class="toolbar">' +
 '<button id="btnClear" type="button" title="Clear chat">Clear</button>' +
 '<button id="btnNew" type="button" title="New chat">New</button>' +
@@ -138,9 +190,11 @@ const PAGE =
 // header buttons
 'els.btnClear.addEventListener("click",function(){if(CONT){try{localStorage.removeItem(KEY)}catch(e){};render();}else{els.list.innerHTML="";}});' +
 'els.btnNew.addEventListener("click",function(){try{localStorage.removeItem(KEY)}catch(e){};location.replace(location.pathname + location.search);});' +
+// PWA: register SW
+'if("serviceWorker" in navigator){window.addEventListener("load",function(){navigator.serviceWorker.register("/sw.js").catch(function(e){console.log("SW reg error",e);});});}' +
 // first paint
 'render();' +
-'</script>';
+'</script></body></html>';
 
 // ---------- server ----------
 const server = http.createServer((req, res) => {
@@ -148,6 +202,19 @@ try {
 const u = new URL(req.url, 'http://' + (req.headers.host || 'localhost'));
 if (setCommonHeaders(res, u)) { res.end(); return; }
 
+// PWA assets
+if (req.method === 'GET' && u.pathname === '/manifest.webmanifest') {
+res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control':'public, max-age=3600' });
+return res.end(MANIFEST);
+}
+if (req.method === 'GET' && u.pathname === '/sw.js') {
+res.writeHead(200, { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control':'no-store' });
+return res.end(SW_JS);
+}
+if (req.method === 'GET' && u.pathname === '/icon-192.png') return send(res, 200, 'image/png', ICON192);
+if (req.method === 'GET' && u.pathname === '/icon-512.png') return send(res, 200, 'image/png', ICON512);
+
+// App
 if (req.method === 'GET' && u.pathname === '/') return html(res, PAGE);
 
 if (req.method === 'POST' && u.pathname === '/api/ask') {
@@ -192,5 +259,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () =>
-console.log('✅ Hey Bori — continuity default; mobile-friendly layout (toolbar top, roomy input bottom) — listening on ' + PORT)
+console.log('✅ Hey Bori — PWA ready; continuity default; mobile-friendly — listening on ' + PORT)
 );
