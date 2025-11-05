@@ -1,4 +1,4 @@
-// Hey Bori — Mobile chat with continuity (ES first → EN), pinned input, Clear + Copy
+// Hey Bori — Mobile chat (continuity ON, ES→EN), pinned input, labeled buttons
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
 
@@ -118,24 +118,28 @@ const INNER_HTML =
 '#messages{flex:1 1 auto;overflow-y:auto;display:flex;flex-direction:column;gap:12px;padding:16px 14px 100px 14px;scroll-behavior:smooth}' +
 '.row{display:flex;gap:10px;align-items:flex-start}' +
 '.avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:13px;font-weight:800;flex:0 0 28px;border:1px solid var(--line)}' +
-'.right{justify-content:flex-end}.right .avatar{background:#ff4455;color:#fff;border-color:#ffc2c5}' +
+'.right{justify-content:flex-end}.right .avatar{background:#0a3a78;color:#fff;border-color:#b2c8ff}' +
 '.bubble{max-width:85%;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:#fff;white-space:pre-wrap;line-height:1.55}' +
 '.user .bubble{background:var(--user);border-color:#d8e7ff}.assistant .bubble{background:var(--assistant)}' +
 '.name{font-size:12px;font-weight:700;color:#333;margin-bottom:4px;letter-spacing:.2px}' +
 '#toolbar{position:absolute;top:10px;right:14px;display:flex;gap:8px;z-index:30}' +
-'#toolbar button{font-size:13px;padding:6px 10px;border:1px solid #ccc;border-radius:8px;background:#fff;cursor:pointer}' +
+'#toolbar button{font-size:13px;padding:6px 10px;border:1px solid #0c2a55;border-radius:8px;cursor:pointer;font-weight:600}' +
+'#copyLast{background:#ffffff;color:#0c2a55}' +
+'#copyLast:hover{background:#e6f0ff}' +
+'#clearChat{background:#ff4d4d;color:#fff;border-color:#ff4d4d}' +
+'#clearChat:hover{background:#e63e3e}' +
 'form{position:fixed;bottom:0;left:0;right:0;z-index:20;display:grid;grid-template-columns:1fr auto;gap:10px;border-top:1px solid var(--line);padding:10px 14px;background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,0.04)}' +
 'textarea{width:100%;min-height:56px;resize:none;padding:12px;border:1px solid var(--line);border-radius:12px;font-size:16px;line-height:1.4}' +
 'button{padding:12px 16px;border:1px solid #0c2a55;border-radius:12px;background:#0a3a78;color:#fff;cursor:pointer;font-weight:700}' +
 'button:disabled{opacity:0.6;cursor:default}' +
 '</style><main>' +
 '<div id=messages></div>' +
-'<div id=toolbar><button id=copyLast>Copy</button><button id=clearChat>Clear</button></div>' +
+'<div id=toolbar><button id=copyLast title="Copy last response">Copy Last</button><button id=clearChat title="Clear chat history">Clear Chat</button></div>' +
 '<form id=ask-form autocomplete=off><textarea id=q placeholder="Haz tu pregunta… / Ask your question…" required></textarea><button id=send type=submit>Send</button></form>' +
 '</main><script>' +
 // --- state & elements ---
 'var LANG=(new URLSearchParams(location.search).get("lang")||"es").toLowerCase();' +
-'var KEY="bori_chat_v5";' + // keep constant so history persists
+'var KEY="bori_chat_v6";' +
 'function load(){try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}}' +
 'function save(t){try{localStorage.setItem(KEY,JSON.stringify(t))}catch(e){}}' +
 'var els={list:document.getElementById("messages"),form:document.getElementById("ask-form"),q:document.getElementById("q"),send:document.getElementById("send"),copyBtn:document.getElementById("copyLast"),clearBtn:document.getElementById("clearChat")};' +
@@ -152,10 +156,10 @@ const INNER_HTML =
 // --- typing effect ---
 'function typeWriter(t){var o="",i=0,step=Math.max(2,Math.floor(t.length/200));(function tick(){o+=t.slice(i,i+step);i+=step;var a=load();a[a.length-1]={role:"assistant",content:o,ts:Date.now()};save(a);render(true);if(i<t.length)setTimeout(tick,18);})();}' +
 // --- send handler ---
-'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var a=await askServer(q);var t2=load();t2.push({role:"assistant",content:"",ts:Date.now()});save(t2);render(true);typeWriter(a)}catch(err){var t3=load();t3.push({role:"assistant",content:"(network) "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus();}});' +
+'els.form.addEventListener("submit",async function(e){e.preventDefault();var q=els.q.value.trim();if(!q)return;els.q.value="";var t=load();t.push({role:"user",content:q,ts:Date.now()});save(t);render(true);els.send.disabled=true;try{var a=await askServer(q);var t2=load();t2.push({role:"assistant",content:"",ts:Date.now()});save(t2);render(true);typeWriter(a)}catch(err){var t3=load();t3.push({role:"assistant",content:"(network) "+(err&&err.message||err),ts:Date.now()});save(t3);render(true)}finally{els.send.disabled=false;els.q.focus()}});' +
 // --- toolbar: clear/copy ---
 'els.clearBtn.addEventListener("click",function(){localStorage.removeItem(KEY);render(true);alert("Chat cleared ✅")});' +
-'els.copyBtn.addEventListener("click",async function(){try{var t=load();for(var i=t.length-1;i>=0;i--){if(t[i].role==="assistant"){var tmp=document.createElement("div");tmp.innerHTML=md(t[i].content);var txt=tmp.textContent||tmp.innerText||"";await navigator.clipboard.writeText(txt);alert("Copied ✅");return}}alert("Nothing to copy") }catch(e){alert("Copy failed")}});' +
+'els.copyBtn.addEventListener("click",async function(){try{var t=load();for(var i=t.length-1;i>=0;i--){if(t[i].role==="assistant"){var tmp=document.createElement("div");tmp.innerHTML=md(t[i].content);var txt=tmp.textContent||tmp.innerText||"";await navigator.clipboard.writeText(txt);alert("Copied ✅");return}}alert("Nothing to copy")}catch(e){alert("Copy failed")}});' +
 // --- first paint ---
 'render(true);' +
 '</script>';
@@ -191,7 +195,7 @@ const q = (j.question || '').toString().slice(0, 4000);
 const lang = (j.lang || 'es').toLowerCase();
 const hist = Array.isArray(j.history) ? j.history : [];
 
-// build system prompt (ES first → EN, continuity)
+// system prompt: ES first → EN, use full context
 const systemPrompt =
 lang === 'en'
 ? 'Respond ONLY in English. Use full conversation context. Be concise and helpful. End with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.'
@@ -204,7 +208,7 @@ role: m && m.role === 'assistant' ? 'assistant' : 'user',
 content: ((m && m.content) || '').toString().slice(0, 2000)
 })),
 { role: 'user', content: q }
-].slice(-30); // cap total tokens a bit
+].slice(-30); // keep final context bounded
 
 const a = await callOpenAI(msgs);
 return json(res, 200, { answer: a });
@@ -222,5 +226,5 @@ text(res, 500, 'Internal Server Error');
 });
 
 server.listen(Number(PORT), () =>
-console.log('✅ Hey Bori (continuity on) listening on ' + PORT)
+console.log('✅ Hey Bori (continuity fixed) listening on ' + PORT)
 );
