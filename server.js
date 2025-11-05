@@ -1,4 +1,5 @@
-// Hey Bori — self-contained PWA + greeting + TRUE continuity + dynamic greeting bar + mobile layout.
+// Hey Bori — self-contained PWA + greeting + TRUE continuity + dynamic greeting bar
+// FULL GRADIENT BACKGROUND (Bori Blue -> Sky Blue) + mobile-first layout.
 // Spanish first → English. Local name memory. — Bori Labs LLC — Let’s Go Pa’lante 🏀
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
@@ -66,7 +67,7 @@ const MANIFEST=JSON.stringify({
 name:"Hey Bori",short_name:"Hey Bori",
 description:"Bilingual chat — Spanish first, then English.",
 start_url:"/",scope:"/",display:"standalone",
-background_color:"#ffffff",theme_color:"#0a3a78",
+background_color:"#0a3a78",theme_color:"#0a3a78",
 icons:[{src:"/icon-192.png",sizes:"192x192",type:"image/png"},
 {src:"/icon-512.png",sizes:"512x512",type:"image/png"}]
 });
@@ -89,38 +90,60 @@ const PAGE = `<!doctype html><html lang="en"><head>
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
 <title>Hey Bori</title>
 <style>
-html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111}
-.app{min-height:100svh;display:flex;flex-direction:column;background:#fff}
-header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #eee}
-.title{margin:0;font:800 20px/1.2 system-ui}
-.sub{margin:0;color:#666;font:500 12px/1.4 system-ui}
-.namepill{display:inline-flex;align-items:center;gap:8px;margin-top:6px;background:#eef4ff;border:1px solid #d8e7ff;color:#0a3a78;
-font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px}
-.namepill .dot{width:8px;height:8px;border-radius:50%;background:#0a3a78}
+:root{
+--bori-deep:#0a3a78;
+--bori-sky:#1c64ff;
+--white:#ffffff;
+--text:#101114;
+--border:#e6e6e6;
+}
+html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bori-deep) 0%,var(--bori-sky) 100%);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
+/* Container uses transparent background so gradient shows through */
+.app{min-height:100svh;display:flex;flex-direction:column;background:transparent}
+
+/* Header sits on gradient; make content white for contrast */
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
+background:linear-gradient(180deg,rgba(10,58,120,0.85) 0%, rgba(10,58,120,0.55) 100%);backdrop-filter:saturate(1.2) blur(2px);
+border-bottom:1px solid rgba(255,255,255,0.2)}
+.title{margin:0;font:800 20px/1.2 system-ui;color:#fff}
+.sub{margin:4px 0 0 0;color:rgba(255,255,255,0.9);font:600 12px/1.4 system-ui}
+.namepill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;
+font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px;cursor:pointer}
+.namepill .dot{width:8px;height:8px;border-radius:50%;background:#fff}
+
+/* Toolbar buttons — outline style on gradient */
 .toolbar{display:flex;gap:8px}
-button{padding:10px 14px;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}
-#btnClear{background:#ff4d4d;border-color:#ff4d4d}
-#btnNew{background:#444;border-color:#444}
-#btnName{background:#0a3a78;border-color:#0c2a55}
+button{padding:10px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.65);background:transparent;color:#fff;font-weight:800;cursor:pointer}
+button:hover{background:rgba(255,255,255,0.08)}
+
+/* Messages area — bubbles float on gradient; give soft shadows */
 #messages{flex:1 1 auto;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;scroll-behavior:smooth;-webkit-overflow-scrolling:touch}
 .row{display:flex;gap:10px;align-items:flex-start}
-.avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid #e6e6e6}
-.right{justify-content:flex-end}.right .avatar{background:#0a3a78;color:#fff;border-color:#b2c8ff}
-.bubble{max-width:85%;border:1px solid #e6e6e6;border-radius:12px;padding:10px 12px;background:#fff;white-space:pre-wrap;line-height:1.55}
-.user .bubble{background:#eef4ff;border-color:#d8e7ff}.assistant .bubble{background:#f7f7f7}
-form{position:sticky;bottom:0;left:0;right:0;display:flex;align-items:center;gap:10px;border-top:1px solid #eee;
-padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));background:#fff;box-shadow:0 -3px 8px rgba(0,0,0,.04)}
+.avatar{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:800;border:1px solid rgba(255,255,255,0.6);color:#fff}
+.right{justify-content:flex-end}.right .avatar{background:rgba(255,255,255,0.2)}
+.avatar{background:rgba(255,255,255,0.2)}
+
+/* White bubbles with light shadow for contrast on gradient */
+.bubble{max-width:85%;border:1px solid var(--border);border-radius:12px;padding:10px 12px;background:var(--white);white-space:pre-wrap;line-height:1.55;
+box-shadow:0 6px 18px rgba(0,0,0,0.08)}
+.user .bubble{background:#eef4ff;border-color:#d8e7ff}
+.assistant .bubble{background:#ffffff}
+
+/* Input bar floats above gradient with white surface */
+form{position:sticky;bottom:0;left:0;right:0;display:flex;align-items:center;gap:10px;border-top:1px solid rgba(255,255,255,0.35);
+padding:10px 12px;padding-bottom:calc(10px + env(safe-area-inset-bottom));
+background:linear-gradient(0deg, rgba(255,255,255,0.85), rgba(255,255,255,0.92));backdrop-filter:blur(6px)}
 textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px 12px;border:1px solid #ddd;border-radius:12px;font-size:16px}
-#send{flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;padding:0;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}
+#send{flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;padding:0;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:800;cursor:pointer}
 #send:disabled{opacity:.6;cursor:default}
-#typing{padding:0 14px 8px;color:#666;font:500 12px/1.4 system-ui;display:none}
+#typing{padding:4px 14px 8px;color:rgba(255,255,255,0.95);font:600 12px/1.4 system-ui;display:none;text-shadow:0 1px 2px rgba(0,0,0,0.2)}
 </style></head><body>
 <section class="app">
 <header>
 <div>
 <h1 class="title" id="titleText">Hey Bori</h1>
 <p class="sub">Spanish first, then English · Continuity ON</p>
-<div class="namepill" id="namePill" style="display:none">
+<div class="namepill" id="namePill" role="button" tabindex="0" style="display:none">
 <span class="dot"></span><span id="namePillText">Hola</span>
 </div>
 </div>
@@ -163,11 +186,11 @@ btnName:document.getElementById("btnName"),typing:document.getElementById("typin
 namePill:document.getElementById("namePill"),namePillText:document.getElementById("namePillText")};
 
 function when(t){ return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }
-function esc(s){ return String(s).replace(/[&<>\"\\']/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[m] }) }
+function esc(s){ return String(s).replace(/[&<>\"\\']/g,function(m){return {"&":"&amp;","<":"&lt;","">":"&gt;","\\"":"&quot;","'":"&#39;"}[m] }) }
 function bubble(role,content,ts){
 var u=role==="user"; var who=u?"Coach":"Hey Bori"; var i=u?"C":"B";
 return '<div class="row '+(u?'right user':'assistant')+'"><div class=avatar>'+i+
-'</div><div><div class=meta>'+who+' · '+when(ts)+'</div><div class=bubble>'+esc(content)+'</div></div></div>';
+'</div><div><div class=bubble>'+esc(content)+'</div></div></div>';
 }
 function scrollToEnd(){ els.list.scrollTop = els.list.scrollHeight }
 function render(){
@@ -279,7 +302,7 @@ showTyping(false); els.send.disabled=false; els.q.focus();
 // header buttons
 document.getElementById("btnClear").addEventListener("click", function(){ clearHist(); render(); });
 document.getElementById("btnNew").addEventListener("click", function(){ clearHist(); location.replace(location.pathname + location.search); });
-document.getElementById("btnName").addEventListener("click", function(){
+function openRename(){
 var current = getName();
 var ask = current ? "Enter your new name (or leave blank to cancel):"
 : "¿Cómo te llamas? / What’s your name? (leave blank to cancel)";
@@ -290,7 +313,10 @@ if(!nm){ alert("Nombre no válido / Invalid name. Try 1–3 words, letters only.
 setName(nm); setAskingName(false);
 push("assistant","Perfecto — te saludaré como "+nm+".\\n/ Great! I’ll greet you as "+nm+" from now on.\\n— Bori Labs LLC — Let’s Go Pa’lante 🏀");
 updateGreetingBar();
-});
+}
+document.getElementById("btnName").addEventListener("click", openRename);
+els.namePill.addEventListener("click", openRename);
+els.namePill.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openRename(); }});
 
 // first paint + greeting
 (function(){
@@ -367,4 +393,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori — dynamic greeting bar; continuity locked; PWA — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori — full gradient; dynamic bar; continuity — listening on '+PORT));
