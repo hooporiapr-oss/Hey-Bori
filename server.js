@@ -135,7 +135,7 @@ const INNER_HTML =
 '</style><main>' +
 '<div id=messages></div>' +
 '<div id=toolbar><button id=copyLast title="Copy last response">Copy Last</button><button id=clearChat title="Clear chat history">Clear Chat</button></div>' +
-'<form id=ask-form autocomplete=off><textarea id=q placeholder="Haz tu pregunta para comenae/continuar… / Ask your question to start/continue…" required></textarea><button id=send type=submit>Send</button></form>' +
+'<form id=ask-form autocomplete=off><textarea id=q placeholder="Haz tu pregunta para comenzar/continuar… / Ask your question to start/continue…" required></textarea><button id=send type=submit>Send</button></form>' +
 '</main><script>' +
 // --- state & elements ---
 'var LANG=(new URLSearchParams(location.search).get("lang")||"es").toLowerCase();' +
