@@ -1,6 +1,5 @@
-// Hey Bori — self-contained PWA + greeting + TRUE continuity + mobile layout.
-// Memory fix: explicit session-recall instructions in system prompt (ES first → EN).
-// — Bori Labs LLC — Let’s Go Pa’lante 🏀
+// Hey Bori — self-contained PWA + greeting + TRUE continuity + dynamic greeting bar + mobile layout.
+// Spanish first → English. Local name memory. — Bori Labs LLC — Let’s Go Pa’lante 🏀
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
@@ -45,20 +44,14 @@ function openAIChat(messages){
 return new Promise(resolve=>{
 if(!process.env.OPENAI_API_KEY)
 return resolve('Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
-const body=JSON.stringify({
-model:'gpt-4o-mini',
-temperature:0.2, // more deterministic for recall
-messages
-});
+const body=JSON.stringify({ model:'gpt-4o-mini', temperature:0.2, messages });
 const req=https.request(
 {method:'POST',hostname:'api.openai.com',path:'/v1/chat/completions',
 headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)},timeout:30000},
 r=>{
 let d='';r.setEncoding('utf8');r.on('data',c=>d+=c);
-r.on('end',()=>{try{
-const j=JSON.parse(d);
-resolve(j?.choices?.[0]?.message?.content || 'Temporary error — try again.');
-}catch(e){resolve('Temporary error — '+e.message);}});
+r.on('end',()=>{try{const j=JSON.parse(d);resolve(j?.choices?.[0]?.message?.content||'Temporary error — try again.');}
+catch(e){resolve('Temporary error — '+e.message);}});
 });
 req.on('error',e=>resolve('Network error — '+e.message));
 req.on('timeout',()=>{req.destroy();resolve('Request timed out');});
@@ -101,6 +94,9 @@ html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-syst
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;border-bottom:1px solid #eee}
 .title{margin:0;font:800 20px/1.2 system-ui}
 .sub{margin:0;color:#666;font:500 12px/1.4 system-ui}
+.namepill{display:inline-flex;align-items:center;gap:8px;margin-top:6px;background:#eef4ff;border:1px solid #d8e7ff;color:#0a3a78;
+font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px}
+.namepill .dot{width:8px;height:8px;border-radius:50%;background:#0a3a78}
 .toolbar{display:flex;gap:8px}
 button{padding:10px 14px;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:700;cursor:pointer}
 #btnClear{background:#ff4d4d;border-color:#ff4d4d}
@@ -121,7 +117,13 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 </style></head><body>
 <section class="app">
 <header>
-<div><h1 class="title">Hey Bori</h1><p class="sub">Spanish first, then English · Continuity ON</p></div>
+<div>
+<h1 class="title" id="titleText">Hey Bori</h1>
+<p class="sub">Spanish first, then English · Continuity ON</p>
+<div class="namepill" id="namePill" style="display:none">
+<span class="dot"></span><span id="namePillText">Hola</span>
+</div>
+</div>
 <div class="toolbar">
 <button id="btnClear">Clear</button>
 <button id="btnNew">New</button>
@@ -157,7 +159,8 @@ function setAskingName(on){ try{ localStorage.setItem(ASK_KEY, on?"1":"0") }catc
 // ===== UI =====
 var els={list:document.getElementById("messages"),form:document.getElementById("ask"),q:document.getElementById("q"),
 send:document.getElementById("send"),btnClear:document.getElementById("btnClear"),btnNew:document.getElementById("btnNew"),
-btnName:document.getElementById("btnName"),typing:document.getElementById("typing")};
+btnName:document.getElementById("btnName"),typing:document.getElementById("typing"),
+namePill:document.getElementById("namePill"),namePillText:document.getElementById("namePillText")};
 
 function when(t){ return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }
 function esc(s){ return String(s).replace(/[&<>\"\\']/g,function(m){return {"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[m] }) }
@@ -174,6 +177,21 @@ scrollToEnd();
 }
 function push(role,content){
 var h = loadHist(); h.push({role,content,ts:Date.now()}); saveHist(h); render();
+}
+
+// ===== Dynamic Greeting Bar =====
+function updateGreetingBar(){
+var nm = getName();
+if(nm){
+els.namePill.style.display = 'inline-flex';
+els.namePillText.textContent = "Hola, " + nm + " 👋";
+els.btnName.textContent = "Hola, " + nm;
+els.btnName.title = "Change name";
+}else{
+els.namePill.style.display = 'none';
+els.btnName.textContent = "Name";
+els.btnName.title = "Set your name";
+}
 }
 
 // typing indicator
@@ -237,11 +255,12 @@ els.q.value = "";
 if(CONT){ push("user", q); } else { els.list.insertAdjacentHTML("beforeend", bubble("user", q, Date.now())); scrollToEnd(); }
 
 // name capture if asked
-if(isAskingName() && !getName()){
+if(localStorage.getItem('bori_ask_name')==="1" && !getName()){
 var nm = likelyName(q);
 if(nm){
-setName(nm); setAskingName(false);
+setName(nm); localStorage.setItem('bori_ask_name','0');
 push("assistant","Encantado, "+nm+" 🤝.\\nDesde ahora te saludaré por tu nombre.\\n/ Great to meet you, "+nm+"! I’ll greet you by name from now on.\\n— Bori Labs LLC — Let’s Go Pa’lante 🏀");
+updateGreetingBar();
 return;
 }
 }
@@ -270,17 +289,20 @@ var nm = likelyName(raw);
 if(!nm){ alert("Nombre no válido / Invalid name. Try 1–3 words, letters only."); return; }
 setName(nm); setAskingName(false);
 push("assistant","Perfecto — te saludaré como "+nm+".\\n/ Great! I’ll greet you as "+nm+" from now on.\\n— Bori Labs LLC — Let’s Go Pa’lante 🏀");
+updateGreetingBar();
 });
 
 // first paint + greeting
 (function(){
+updateGreetingBar();
 var h = loadHist();
 if(h.length===0){
 var nm = getName();
-if(nm){ push("assistant", greetFor(nm)); setAskingName(false); }
-else { push("assistant", greetFor("")); setAskingName(true); }
+if(nm){ push("assistant", greetFor(nm)); localStorage.setItem('bori_ask_name','0'); }
+else { push("assistant", greetFor("")); localStorage.setItem('bori_ask_name','1'); }
 return;
 }
+localStorage.setItem('bori_ask_name', getName()? '0':'1');
 render();
 })();
 
@@ -320,20 +342,16 @@ role:(m.role==='assistant')?'assistant':'user',
 content:String(m.content||'').slice(0,2000)
 })).slice(-30);
 
-// === MEMORY-FRIENDLY SYSTEM PROMPT ===
 const SYS_EN = "You are Hey Bori. You DO have access to the full conversation context shown in prior messages in THIS chat session. " +
 "You MUST use that context to answer follow-ups, including recalling codes, numbers, names, preferences, steps, and facts shared earlier in the same session. " +
-"If the information is not present in the conversation so far, ask the user to repeat it briefly instead of saying you cannot remember. " +
+"If the information is not present in the conversation so far, ask the user to restate it briefly instead of saying you cannot remember. " +
 "Be concise. Output Spanish first, then English. Always end with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
 const SYS_ES = "Eres Hey Bori. SÍ tienes acceso al contexto completo de esta conversación en esta sesión. " +
 "DEBES usar ese contexto para responder seguimientos, incluyendo recordar códigos, números, nombres, preferencias, pasos y hechos compartidos previamente en esta misma sesión. " +
 "Si la información NO aparece en la conversación, pide al usuario que la repita brevemente (no digas que no puedes recordar). " +
 "Sé conciso. Escribe primero en Español y luego en Inglés. Termina siempre con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
 
-const systemPrompt = (lang === 'en')
-? `${SYS_EN}`
-: `${SYS_ES}`;
-
+const systemPrompt = (lang === 'en') ? SYS_EN : SYS_ES;
 const msgs = cont
 ? [{role:'system',content:systemPrompt}, ...normHist, {role:'user',content:q}]
 : [{role:'system',content:systemPrompt}, {role:'user',content:q}];
@@ -349,4 +367,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori — continuity fixed with explicit recall; PWA; greeting — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori — dynamic greeting bar; continuity locked; PWA — listening on '+PORT));
