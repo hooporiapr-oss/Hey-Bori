@@ -1,5 +1,6 @@
-// Hey Bori — full gradient + dynamic greeting bar + TRUE continuity + PWA
-// Fix: correct esc() so inline script runs. — Bori Labs LLC — Let’s Go Pa’lante 🏀
+// Hey Bori — full gradient + inline SVG logo + TRUE continuity + PWA
+// Single name control: clickable name pill (removed old "Name" button).
+// ES first → EN, always ending with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”
 
 process.on('uncaughtException', e => console.error('[uncaughtException]', e));
 process.on('unhandledRejection', e => console.error('[unhandledRejection]', e));
@@ -43,15 +44,21 @@ return false;
 function openAIChat(messages){
 return new Promise(resolve=>{
 if(!process.env.OPENAI_API_KEY)
-return resolve('Missing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
-const body=JSON.stringify({ model:'gpt-4o-mini', temperature:0.2, messages });
+return resolve('Falta la clave de API.\nMissing API key.\n— Bori Labs LLC — Let’s Go Pa’lante 🏀');
+const body=JSON.stringify({
+model:'gpt-4o-mini',
+temperature:0.2,
+messages
+});
 const req=https.request(
 {method:'POST',hostname:'api.openai.com',path:'/v1/chat/completions',
 headers:{Authorization:'Bearer '+process.env.OPENAI_API_KEY,'Content-Type':'application/json','Content-Length':Buffer.byteLength(body)},timeout:30000},
 r=>{
 let d='';r.setEncoding('utf8');r.on('data',c=>d+=c);
-r.on('end',()=>{try{const j=JSON.parse(d);resolve(j?.choices?.[0]?.message?.content||'Temporary error — try again.');}
-catch(e){resolve('Temporary error — '+e.message);}});
+r.on('end',()=>{try{
+const j=JSON.parse(d);
+resolve(j?.choices?.[0]?.message?.content || 'Temporary error — try again.');
+}catch(e){resolve('Temporary error — '+e.message);}});
 });
 req.on('error',e=>resolve('Network error — '+e.message));
 req.on('timeout',()=>{req.destroy();resolve('Request timed out');});
@@ -83,7 +90,7 @@ e.respondWith(caches.match(e.request,{ignoreSearch:true}).then(hit=>hit||fetch(e
 });`;
 
 // ---------- page (inline JS) ----------
-const PAGE = `<!doctype html><html lang="en"><head>
+const PAGE = `<!doctype html><html lang="es"><head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a3a78"><link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/icon-192.png"><link rel="apple-touch-icon" href="/icon-192.png">
@@ -101,6 +108,7 @@ html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bori-deep
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;
 background:linear-gradient(180deg,rgba(10,58,120,0.85) 0%, rgba(10,58,120,0.55) 100%);backdrop-filter:saturate(1.2) blur(2px);
 border-bottom:1px solid rgba(255,255,255,0.2)}
+.brandwrap{display:flex;align-items:center;gap:10px}
 .title{margin:0;font:800 20px/1.2 system-ui;color:#fff}
 .sub{margin:4px 0 0 0;color:rgba(255,255,255,0.9);font:600 12px/1.4 system-ui}
 .namepill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.35);color:#fff;
@@ -125,11 +133,24 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 #send{flex:0 0 auto;display:grid;place-items:center;width:46px;height:46px;padding:0;border-radius:12px;border:1px solid #0c2a55;background:#0a3a78;color:#fff;font-weight:800;cursor:pointer}
 #send:disabled{opacity:.6;cursor:default}
 #typing{padding:4px 14px 8px;color:rgba(255,255,255,0.95);font:600 12px/1.4 system-ui;display:none;text-shadow:0 1px 2px rgba(0,0,0,0.2)}
+.logo svg{width:36px;height:36px;flex-shrink:0;border-radius:50%;background:#fff}
 </style></head><body>
 <section class="app">
 <header>
 <div>
+<div class="brandwrap">
+<!-- Inline SVG logo -->
+<div class="logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" aria-label="Hey Bori Logo">
+<defs><linearGradient id="boriGrad" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0%" stop-color="#1C64FF"/><stop offset="100%" stop-color="#0A3A78"/>
+</linearGradient></defs>
+<circle cx="256" cy="256" r="256" fill="#fff"/>
+<path fill="url(#boriGrad)" d="M160 120h112c80 0 120 32 120 88 0 36-18 64-52 76 40 10 64 38 64 80 0 64-48 100-132 100H160V120zm76 128h68c32 0 48-12 48-36 0-22-16-36-46-36h-70v72zm0 96h78c34 0 50-12 50-40 0-26-16-40-52-40h-76v80z"/>
+</svg>
+</div>
 <h1 class="title" id="titleText">Hey Bori</h1>
+</div>
 <p class="sub">Spanish first, then English · Continuity ON</p>
 <div class="namepill" id="namePill" role="button" tabindex="0" style="display:none">
 <span class="dot"></span><span id="namePillText">Hola</span>
@@ -138,7 +159,7 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 <div class="toolbar">
 <button id="btnClear">Clear</button>
 <button id="btnNew">New</button>
-<button id="btnName" title="Change name">Name</button>
+<!-- Removed old Name button -->
 </div>
 </header>
 <div id="messages"></div>
@@ -170,18 +191,16 @@ function setAskingName(on){ try{ localStorage.setItem(ASK_KEY, on?"1":"0") }catc
 // ===== UI =====
 var els={list:document.getElementById("messages"),form:document.getElementById("ask"),q:document.getElementById("q"),
 send:document.getElementById("send"),btnClear:document.getElementById("btnClear"),btnNew:document.getElementById("btnNew"),
-btnName:document.getElementById("btnName"),typing:document.getElementById("typing"),
+typing:document.getElementById("typing"),
 namePill:document.getElementById("namePill"),namePillText:document.getElementById("namePillText")};
 
 function when(t){ return new Date(t||Date.now()).toLocaleTimeString([],{hour:"2-digit",minute:"2-digit"}) }
-
-// FIXED esc(): correctly escape & < > " '
+// Safe HTML escape
 function esc(s){
 return String(s).replace(/[&<>\"']/g, function(m){
 return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]);
 });
 }
-
 function bubble(role,content,ts){
 var u=role==="user"; var i=u?"C":"B";
 return '<div class="row '+(u?'right user':'assistant')+'"><div class=avatar>'+i+
@@ -203,12 +222,8 @@ var nm = getName();
 if(nm){
 els.namePill.style.display = 'inline-flex';
 els.namePillText.textContent = "Hola, " + nm + " 👋";
-els.btnName.textContent = "Hola, " + nm;
-els.btnName.title = "Change name";
 }else{
 els.namePill.style.display = 'none';
-els.btnName.textContent = "Name";
-els.btnName.title = "Set your name";
 }
 }
 
@@ -297,6 +312,8 @@ showTyping(false); els.send.disabled=false; els.q.focus();
 // header buttons
 document.getElementById("btnClear").addEventListener("click", function(){ clearHist(); render(); });
 document.getElementById("btnNew").addEventListener("click", function(){ clearHist(); location.replace(location.pathname + location.search); });
+
+// Name pill rename
 function openRename(){
 var current = getName();
 var ask = current ? "Enter your new name (or leave blank to cancel):"
@@ -309,7 +326,6 @@ setName(nm); setAskingName(false);
 push("assistant","Perfecto — te saludaré como "+nm+".\\n/ Great! I’ll greet you as "+nm+" from now on.\\n— Bori Labs LLC — Let’s Go Pa’lante 🏀");
 updateGreetingBar();
 }
-document.getElementById("btnName").addEventListener("click", openRename);
 els.namePill.addEventListener("click", openRename);
 els.namePill.addEventListener("keydown", function(e){ if(e.key==="Enter"||e.key===" "){ e.preventDefault(); openRename(); }});
 
@@ -349,7 +365,7 @@ if(req.method==='GET'&&u.pathname==='/icon-512.png') return send(res,200,'image/
 // Page
 if(req.method==='GET'&&u.pathname==='/') return html(res,PAGE);
 
-// API: last 30 normalized turns + explicit recall rules
+// API: last 30 normalized turns + explicit recall rules (ES first → EN + signature)
 if(req.method==='POST'&&u.pathname==='/api/ask'){
 let body='';req.on('data',c=>body+=c);req.on('end',async()=>{
 try{
@@ -363,14 +379,8 @@ role:(m.role==='assistant')?'assistant':'user',
 content:String(m.content||'').slice(0,2000)
 })).slice(-30);
 
-const SYS_EN = "You are Hey Bori. You DO have access to the full conversation context shown in prior messages in THIS chat session. " +
-"You MUST use that context to answer follow-ups, including recalling codes, numbers, names, preferences, steps, and facts shared earlier in the same session. " +
-"If the information is not present in the conversation so far, ask the user to restate it briefly instead of saying you cannot remember. " +
-"Be concise. Output Spanish first, then English. Always end with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
-const SYS_ES = "Eres Hey Bori. SÍ tienes acceso al contexto completo de esta conversación en esta sesión. " +
-"DEBES usar ese contexto para responder seguimientos, incluyendo recordar códigos, números, nombres, preferencias, pasos y hechos compartidos previamente en esta misma sesión. " +
-"Si la información NO aparece en la conversación, pide al usuario que la repita brevemente (no digas que no puedes recordar). " +
-"Sé conciso. Escribe primero en Español y luego en Inglés. Termina siempre con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
+const SYS_EN = "You are Hey Bori. You DO have access to the full conversation context in THIS chat session and MUST use it to recall numbers, codes, names, preferences, and previous facts. If a detail isn’t present yet, ask the user to restate it briefly. Be concise. Output Spanish first, then English. End every answer with “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
+const SYS_ES = "Eres Hey Bori. Tienes acceso al contexto completo de ESTA sesión y DEBES usarlo para recordar números, códigos, nombres, preferencias y hechos previos. Si falta un dato, pide al usuario que lo repita brevemente. Sé conciso. Escribe primero en Español y luego en Inglés. Termina cada respuesta con “— Bori Labs LLC — Let’s Go Pa’lante 🏀”.";
 
 const systemPrompt = (lang === 'en') ? SYS_EN : SYS_ES;
 const msgs = cont
@@ -388,4 +398,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori — full gradient fixed; dynamic bar; continuity — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori — full gradient; logo; SINGLE name pill; continuity — listening on '+PORT));
