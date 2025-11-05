@@ -104,14 +104,14 @@ return (
 '.hdr{padding:16px 18px 8px}.t{margin:0 0 4px;font:800 20px/1.2 system-ui}.s{margin:0;color:#666;font:500 13px/1.4 system-ui}' +
 '.chat{flex:1 1 auto;min-height:0}iframe{width:100%;height:100%;border:0;background:#fff;display:block}' +
 '</style><section class=screen><header class=hdr>' +
-'<h1 class=t>Hey Bori</h1><p class=s>Haz tu pregunta — Español primero, luego Inglés</p>' +
+'<h1 class=t>Hey Bori</h1><p class=s>Haz tu Pregunta para Comenzar/Continuar — Español o | English - Ask Me Anything to Get Started/Continue</p>' +
 '</header><div class=chat><iframe src="/inner?lang=' + encodeURIComponent(lang) + '" title="Hey Bori Chat" loading=eager></iframe></div></section>'
 );
 }
 
 const INNER_HTML =
 '<!doctype html><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">' +
-'<title>Hey Bori Chat</title><style>' +
+'<title>Hey Bori</title><style>' +
 ':root{--line:#e6e6e6;--user:#eef4ff;--assistant:#f7f7f7}' +
 'html,body{margin:0;height:100%;background:#fff;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111;overflow:hidden}' +
 'main{position:relative;height:100%;display:flex;flex-direction:column;background:#fff}' +
