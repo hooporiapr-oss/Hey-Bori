@@ -1,4 +1,4 @@
-// Hey Bori™ — full gradient UI + inline SVG logo + continuity + PWA
+// Hey Bori™ — gradient UI + inline SVG logo + continuity + PWA
 // Denylist guardrails (incl. guns/explosives/terrorism/war/drugs)
 // Agents Router: chat | math | planner | summarize | writer | translate (+ /commands)
 // Signature: "— Hey Bori™ — Let’s Go Pa’lante"
@@ -183,7 +183,7 @@ background_color:"#0a3a78",theme_color:"#0a3a78",
 icons:[{src:"/icon-192.png",sizes:"192x192",type:"image/png"},
 {src:"/icon-512.png",sizes:"512x512",type:"image/png"}]
 });
-const SW_JS=`const CACHE_NAME='bori-shell-v1';
+const SW_JS=`const CACHE_NAME='bori-shell-v2';
 const SHELL=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(SHELL)).then(self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k))))).then(()=>self.clients.claim()))});
@@ -241,6 +241,12 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 #typing{padding:4px 14px 8px;color:rgba(255,255,255,0.95);font:600 12px/1.4 system-ui;display:none;text-shadow:0 1px 2px rgba(0,0,0,0.2)}
 .logo svg{width:36px;height:36px;flex-shrink:0;border-radius:50%;background:#fff}
 .hint{padding:6px 16px 0;color:rgba(255,255,255,0.85);font:600 12px/1.4 system-ui}
+
+/* Chips */
+.chips{display:flex;gap:8px;padding:8px 14px 0;overflow:auto}
+.chip{flex:0 0 auto;padding:8px 12px;border-radius:999px;border:1px solid rgba(255,255,255,0.65);
+background:transparent;color:#fff;font:700 12px/1 system-ui;cursor:pointer;white-space:nowrap}
+.chip:hover{background:rgba(255,255,255,0.08)}
 </style></head><body>
 <section class="app">
 <header>
@@ -270,7 +276,17 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 </header>
 <div id="messages"></div>
 <div id="typing">Hey Bori is typing…</div>
-<div class="hint">Tip: use /math, /plan, /sum, /write, /translate</div>
+
+<!-- Example chips (optional UI helpers) -->
+<div class="chips" id="chips">
+<button class="chip" data-cmd="sum">Summarize this</button>
+<button class="chip" data-cmd="plan">Plan my week</button>
+<button class="chip" data-cmd="translate">Translate ES ↔ EN</button>
+<button class="chip" data-cmd="math">Calculate</button>
+</div>
+
+<div class="hint">Tap a suggestion or type: /math, /plan, /sum, /write, /translate</div>
+
 <form id="ask" autocomplete="off">
 <textarea id="q" placeholder="Ask your question in ES or EN… (use /math, /plan, /sum, /write, /translate to force a skill)" required></textarea>
 <button id="send" type="submit" aria-label="Send">
@@ -280,6 +296,14 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 </section>
 
 <script>
+// Fail-safe: keep UI alive even if a minor error happens elsewhere
+window.addEventListener('error', function(){
+try {
+const el = document.getElementById('typing');
+if(el){ el.style.display='block'; el.textContent='Reconnecting… Tap Send again.'; }
+} catch(_) {}
+});
+
 // ===== Storage & flags =====
 var CONT = true; // continuity ON
 var HIST_KEY="bori_chat_hist_v1";
@@ -299,6 +323,7 @@ var els={list:document.getElementById("messages"),form:document.getElementById("
 send:document.getElementById("send"),btnClear:document.getElementById("btnClear"),btnNew:document.getElementById("btnNew"),
 typing:document.getElementById("typing"),
 namePill:document.getElementById("namePill"),namePillText:document.getElementById("namePillText")};
+console.log('[hey-bori] hooks', !!els.form, !!els.q, !!els.send);
 
 function esc(s){
 return String(s).replace(/[&<>\"']/g, function(m){
@@ -355,6 +380,30 @@ function greetFor(name){
 if(name){ return "¡Hola otra vez, "+name+"! ¿Listo para continuar? / Welcome back, "+name+" — ready to continue?\n— Hey Bori™ — Let’s Go Pa’lante"; }
 return "¡Hola! Soy Hey Bori™. Pregúntame lo que quieras en Español o Inglés. ¿Cómo te llamas? / Hi! I’m Hey Bori™. Ask me anything in Spanish or English. What’s your name?\n— Hey Bori™ — Let’s Go Pa’lante";
 }
+
+// Example chips → prefill textarea with a skill command (NULL-SAFE)
+(function(){
+var chipsEl = document.getElementById('chips');
+if(!chipsEl) return; // if chips not in DOM, do nothing
+var box = document.getElementById('q');
+function seed(cmd){
+switch(cmd){
+case 'sum': return '/sum Paste text here → ';
+case 'plan': return '/plan Goal: ';
+case 'translate': return '/translate ';
+case 'math': return '/math ';
+default: return '';
+}
+}
+chipsEl.addEventListener('click', function(e){
+var b = e.target.closest('.chip'); if(!b) return;
+var s = seed(b.dataset.cmd);
+var cur = (box.value || '').trim();
+box.value = cur ? (s + cur) : s;
+box.focus();
+box.dispatchEvent(new Event('input')); // trigger autoresize
+});
+})();
 
 // call server
 async function askServer(q){
@@ -490,8 +539,7 @@ const msgs = cont
 // Temperature by agent
 const temp = (agentSel==='writer'||agentSel==='planner')?0.5
 :(agentSel==='summarize')?0.2
-:(agentSel==='math')?0.0
-:(agentSel==='translate')?0.0
+:(agentSel==='math'||agentSel==='translate')?0.0
 :0.2;
 
 console.log('[ask]', {agentSel, hist: normHist.length, qlen: q.length});
@@ -505,4 +553,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — gradient+logo+continuity+denylist+agents(+/translate) — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — continuity + denylist + agents + chips — listening on '+PORT));
