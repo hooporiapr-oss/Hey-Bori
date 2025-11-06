@@ -183,7 +183,7 @@ background_color:"#0a3a78",theme_color:"#0a3a78",
 icons:[{src:"/icon-192.png",sizes:"192x192",type:"image/png"},
 {src:"/icon-512.png",sizes:"512x512",type:"image/png"}]
 });
-const SW_JS=`const CACHE_NAME='bori-shell-v4';
+const SW_JS=`const CACHE_NAME='bori-shell-v5';
 const SHELL=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(SHELL)).then(self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k))))).then(()=>self.clients.claim()))});
@@ -195,7 +195,7 @@ e.respondWith(caches.match(e.request,{ignoreSearch:true}).then(hit=>hit||fetch(e
 }
 });`;
 
-// ---------- page (Safe Boot + subtitle under title) ----------
+// ---------- page (Safe Boot; no “Spanish first…” line under tagline) ----------
 const PAGE = `<!doctype html><html lang="es"><head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a3a78"><link rel="manifest" href="/manifest.webmanifest">
@@ -209,7 +209,7 @@ header{display:flex;align-items:center;justify-content:space-between;gap:10px;pa
 .brandwrap{display:flex;align-items:center;gap:10px}
 .title{margin:0;font:800 20px/1.2 system-ui;color:#fff}
 .tagline{margin:2px 0 0 2px;font:700 14px/1.4 system-ui;color:rgba(255,255,255,.9);letter-spacing:.3px}
-.sub{margin:4px 0 0 0;color:rgba(255,255,255,.9);font:600 12px/1.4 system-ui}
+.sub{display:none} /* kept but hidden (requested) */
 .namepill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px;cursor:pointer}
 .namepill .dot{width:8px;height:8px;border-radius:50%;background:#fff}
 .toolbar{display:flex;gap:8px}
@@ -251,7 +251,7 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 <p class="tagline">Let’s Go Pa’lante</p>
 </div>
 </div>
-<p class="sub">Spanish first, then English · Continuity ON</p>
+<!-- sub line removed by request -->
 <div class="namepill" id="namePill" role="button" tabindex="0" style="display:none"><span class="dot"></span><span id="namePillText">Hola</span></div>
 </div>
 <div class="toolbar">
@@ -486,4 +486,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — Safe Boot + subtitle + continuity + denylist + agents — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — Safe Boot + subtitle (trimmed) + continuity + denylist + agents — listening on '+PORT));
