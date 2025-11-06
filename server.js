@@ -183,7 +183,7 @@ background_color:"#0a3a78",theme_color:"#0a3a78",
 icons:[{src:"/icon-192.png",sizes:"192x192",type:"image/png"},
 {src:"/icon-512.png",sizes:"512x512",type:"image/png"}]
 });
-const SW_JS=`const CACHE_NAME='bori-shell-v3';
+const SW_JS=`const CACHE_NAME='bori-shell-v4';
 const SHELL=['/','/manifest.webmanifest','/icon-192.png','/icon-512.png'];
 self.addEventListener('install',e=>{e.waitUntil(caches.open(CACHE_NAME).then(c=>c.addAll(SHELL)).then(self.skipWaiting()))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE_NAME).map(k=>caches.delete(k))))).then(()=>self.clients.claim()))});
@@ -195,7 +195,7 @@ e.respondWith(caches.match(e.request,{ignoreSearch:true}).then(hit=>hit||fetch(e
 }
 });`;
 
-// ---------- page (Safe Boot + guarded JS) ----------
+// ---------- page (Safe Boot + subtitle under title) ----------
 const PAGE = `<!doctype html><html lang="es"><head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#0a3a78"><link rel="manifest" href="/manifest.webmanifest">
@@ -206,7 +206,9 @@ const PAGE = `<!doctype html><html lang="es"><head>
 html,body{margin:0;height:100%;background:linear-gradient(180deg,var(--bori-deep) 0%,var(--bori-sky) 100%);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--text)}
 .app{min-height:100svh;display:flex;flex-direction:column;background:transparent}
 header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:14px 16px;background:linear-gradient(180deg,rgba(10,58,120,.85) 0%, rgba(10,58,120,.55) 100%);backdrop-filter:saturate(1.2) blur(2px);border-bottom:1px solid rgba(255,255,255,.2)}
-.brandwrap{display:flex;align-items:center;gap:10px}.title{margin:0;font:800 20px/1.2 system-ui;color:#fff}
+.brandwrap{display:flex;align-items:center;gap:10px}
+.title{margin:0;font:800 20px/1.2 system-ui;color:#fff}
+.tagline{margin:2px 0 0 2px;font:700 14px/1.4 system-ui;color:rgba(255,255,255,.9);letter-spacing:.3px}
 .sub{margin:4px 0 0 0;color:rgba(255,255,255,.9);font:600 12px/1.4 system-ui}
 .namepill{display:inline-flex;align-items:center;gap:8px;margin-top:8px;background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;font:600 12px/1 system-ui;border-radius:999px;padding:6px 10px;cursor:pointer}
 .namepill .dot{width:8px;height:8px;border-radius:50%;background:#fff}
@@ -244,7 +246,10 @@ textarea{flex:1 1 auto;min-height:48px;max-height:160px;resize:none;padding:10px
 <path fill="url(#boriGrad)" d="M160 120h112c80 0 120 32 120 88 0 36-18 64-52 76 40 10 64 38 64 80 0 64-48 100-132 100H160V120zm76 128h68c32 0 48-12 48-36 0-22-16-36-46-36h-70v72zm0 96h78c34 0 50-12 50-40 0-26-16-40-52-40h-76v80z"/>
 </svg>
 </div>
+<div>
 <h1 class="title" id="titleText">Hey Bori™</h1>
+<p class="tagline">Let’s Go Pa’lante</p>
+</div>
 </div>
 <p class="sub">Spanish first, then English · Continuity ON</p>
 <div class="namepill" id="namePill" role="button" tabindex="0" style="display:none"><span class="dot"></span><span id="namePillText">Hola</span></div>
@@ -481,4 +486,4 @@ text(res,404,'Not Found');
 }catch(e){ text(res,500,'Internal Server Error: '+e.message); }
 });
 
-server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — Safe Boot + continuity + denylist + agents — listening on '+PORT));
+server.listen(Number(PORT),()=>console.log('✅ Hey Bori™ — Safe Boot + subtitle + continuity + denylist + agents — listening on '+PORT));
